@@ -23,7 +23,7 @@ import {
 } from 'lucide-react'
 import { Component, type ChangeEvent, type ErrorInfo, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
-import { type AudioFormat, encodeAudio, formatExtension, mixBgm, shiftPitch } from './lib/encode.ts'
+import { type AudioFormat, encodeAudio, formatExtension, mixBgm, opusSupported, shiftPitch } from './lib/encode.ts'
 import { KOKORO_SAMPLE_RATE, type ProgressInfo, type RawAudioLike, loadKokoro, probeWebGpu, resetKokoroSession } from './lib/kokoro.ts'
 import { generateWorker, loadKokoroWorker, resetWorker } from './lib/kokoro-worker.ts'
 import { type VoiceMixEntry, blendVoiceBins, fetchVoiceBin, formatMixFormula } from './lib/voice-mix.ts'
@@ -199,12 +199,12 @@ function ResultRow({ result, isSpeaking, onReplay, onShare, onSave }: ResultRowP
         {result.url && 'showSaveFilePicker' in window ? (
           <button type="button" onClick={() => onSave(result)}>
             <Download size={16} aria-hidden="true" />
-            {result.filename.endsWith('.mp3') ? 'MP3' : 'WAV'}
+            {result.filename.endsWith('.mp3') ? 'MP3' : result.filename.endsWith('.webm') ? 'Opus' : 'WAV'}
           </button>
         ) : result.url ? (
           <a href={result.url} download={result.filename}>
             <Download size={16} aria-hidden="true" />
-            {result.filename.endsWith('.mp3') ? 'MP3' : 'WAV'}
+            {result.filename.endsWith('.mp3') ? 'MP3' : result.filename.endsWith('.webm') ? 'Opus' : 'WAV'}
           </a>
         ) : null}
         {result.url && typeof navigator !== 'undefined' && 'canShare' in navigator ? (
@@ -951,14 +951,16 @@ function App() {
   async function saveWithPicker(result: AudioResult) {
     if (!result.url) return
     try {
-      const isMp3 = result.filename.endsWith('.mp3')
+      const ext = result.filename.slice(result.filename.lastIndexOf('.'))
+      const typeMap: Record<string, { description: string; accept: Record<string, string[]> }> = {
+        '.mp3': { description: 'MP3 Audio', accept: { 'audio/mpeg': ['.mp3'] } },
+        '.webm': { description: 'Opus Audio', accept: { 'audio/webm': ['.webm'] } },
+        '.wav': { description: 'WAV Audio', accept: { 'audio/wav': ['.wav'] } },
+      }
       const picker = window as unknown as { showSaveFilePicker(opts: unknown): Promise<FileSystemFileHandle> }
       const handle = await picker.showSaveFilePicker({
         suggestedName: result.filename,
-        types: [isMp3
-          ? { description: 'MP3 Audio', accept: { 'audio/mpeg': ['.mp3'] } }
-          : { description: 'WAV Audio', accept: { 'audio/wav': ['.wav'] } }
-        ],
+        types: [typeMap[ext] ?? typeMap['.wav']],
       })
       const writable = await handle.createWritable()
       const res = await fetch(result.url)
@@ -1403,6 +1405,7 @@ function App() {
                     <select id="format" value={audioFormat} onChange={(e) => setAudioFormat(e.target.value as AudioFormat)}>
                       <option value="wav">WAV (lossless)</option>
                       <option value="mp3">MP3</option>
+                      {opusSupported() ? <option value="opus">Opus (WebM)</option> : null}
                     </select>
                     {audioFormat === 'mp3' ? (
                       <select value={mp3Bitrate} onChange={(e) => setMp3Bitrate(Number(e.target.value))} aria-label="MP3 bitrate">
