@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/platform-GitHub%20Pages-24292f.svg)](https://sysadmindoc.github.io/BetterTTS/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178c6.svg)](#)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](#)
-[![Tests](https://img.shields.io/badge/tests-98%20passing-53d889.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-103%20passing-53d889.svg)](#)
 
 **Free client-side text-to-speech studio.** Kokoro 82M runs entirely in your browser — no server, no signup, no usage caps (5,000 characters per run, unlimited runs). Export WAV, MP3, or Opus — keep everything private.
 
@@ -45,7 +45,7 @@ Every cloud TTS service gates you behind signups, character limits, and paid tie
 ### Export & Output
 - **WAV** (lossless), **MP3** (96/128/160 kbps), and **Opus/WebM** (via WebCodecs AudioEncoder, where supported) export
 - **Per-line generation** with individual files + automatic ZIP bundle
-- **SRT and VTT subtitle export** with sentence-level timing derived from audio sample counts
+- **SRT and VTT subtitle export** with sentence-level timing, plus opt-in word-level cues from the timestamped Kokoro model
 - **Persistent clip library** — generated clips saved to IndexedDB, survive page reloads
 - **Web Share** for sharing audio files directly from the app (Android Chrome)
 - **Native save dialog** via `showSaveFilePicker` on Chromium, with `<a download>` fallback
@@ -106,12 +106,13 @@ Open `http://localhost:5173/BetterTTS/` in your browser.
 |---|---|
 | Framework | React 19 + TypeScript 6 |
 | Build | Vite 8 |
-| TTS Model | Kokoro 82M via `kokoro-js` 1.2.1 + Transformers.js; Supertonic via Transformers.js |
+| TTS Model | Kokoro 82M via `kokoro-js` 1.2.1 + Transformers.js; timestamped Kokoro via direct ONNX output; Supertonic via Transformers.js |
 | MP3 Encoding | `@breezystack/lamejs` (LGPL-2.1, browser LAME) |
 | Pitch Shifting | `signalsmith-stretch` (MIT, AudioWorklet/WASM) |
+| Phonemization | `phonemizer` (Apache-2.0, eSpeak NG WASM) |
 | ZIP Packaging | `fflate` |
 | Icons | `lucide-react` |
-| Testing | Vitest (98 assertions across 10 suites) |
+| Testing | Vitest (103 assertions across 11 suites) |
 | Linting | oxlint |
 | Hosting | GitHub Pages (static, no backend) |
 
@@ -126,6 +127,7 @@ src/
 ├── lib/
 │   ├── kokoro.ts            # Model loader, WebGPU probe, WASM fallback
 │   ├── kokoro-assets.ts     # Pages-hosted q8 asset routing + HF fallback
+│   ├── kokoro-timestamps.ts # Timestamped Kokoro loader and word cue alignment
 │   ├── kokoro-worker.ts     # Web Worker client interface
 │   ├── supertonic.ts        # Supertonic pipeline loader and voice metadata
 │   ├── encode.ts            # WAV/MP3 encoding, pitch shift, BGM mixing
@@ -142,6 +144,7 @@ src/
 
 **Key design decisions:**
 - WASM q8 model files (~107 MB including tokenizer and 28 voice bins) load from the GitHub Pages site first, then fall back to Hugging Face with 429-aware retry
+- Word-level SRT/VTT is opt-in and uses the HF-hosted `Kokoro-82M-v1.0-ONNX-timestamped` q8 graph plus duration-output alignment
 - All audio generation and processing happens client-side — zero network calls after model download
 - Web Worker isolates WASM/WebGPU inference from the main thread
 - Service worker injects COOP/COEP headers to enable SharedArrayBuffer for threaded WASM on GitHub Pages
@@ -188,12 +191,13 @@ The deploy script builds `dist/`, syncs the Pages-hosted Kokoro q8 model assets 
 
 Supertonic is available as a separate English speed engine: 66M parameters, 10 voices, 44,100 Hz output, HF-hosted fp32 ONNX assets, OpenRAIL license.
 
+Word timestamps are available as an opt-in Kokoro mode using `onnx-community/Kokoro-82M-v1.0-ONNX-timestamped`; the extra q8 model stays HF-hosted and powers word-level SRT/VTT plus follow-along highlighting.
+
 ## Roadmap
 
 Planned features (see [ROADMAP.md](ROADMAP.md) for details):
 
 - Multilingual Kokoro pack (es/fr/it/pt/hi)
-- Word-level timestamps and karaoke highlighting
 - Additional engine support (KittenTTS, Piper)
 - Transformers.js v4 migration for WebGPU speedups
 - M4B chaptered audiobook export

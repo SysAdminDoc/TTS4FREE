@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- Added opt-in word-level Kokoro timestamps via the timestamped q8 ONNX graph, with word-level SRT/VTT and follow-along cues plus browser QA (TF-26).
 - Added Supertonic as a lazy-loaded English fp32 speed engine via Transformers.js, with 10 F/M voices, 44.1 kHz exports, engine-aware speed/step controls, and built-preview browser QA (TF-37 revised).
 
 ### Changed

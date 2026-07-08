@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { blendVoiceBins, formatMixFormula, parseMixFormula } from './voice-mix.ts'
+import { describe, expect, it, vi } from 'vitest'
+import { blendVoiceBins, formatMixFormula, parseMixFormula, voiceBinFromBuffer } from './voice-mix.ts'
 
 describe('blendVoiceBins', () => {
   it('returns the only bin unchanged for a single entry', () => {
@@ -70,5 +70,22 @@ describe('formatMixFormula', () => {
         { voiceId: 'af_bella', weight: 1 },
       ]),
     ).toBe('af_heart(2) + af_bella')
+  })
+})
+
+describe('voiceBinFromBuffer', () => {
+  it('rejects HTML or other non-Float32 payloads', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const bytes = new TextEncoder().encode('<!doctype html>')
+
+    expect(voiceBinFromBuffer(bytes.buffer as ArrayBuffer, 'af_heart')).toBeNull()
+    expect(warn).toHaveBeenCalledWith('Discarding invalid voice bin payload for af_heart')
+    warn.mockRestore()
+  })
+
+  it('accepts Float32 voice data', () => {
+    const data = new Float32Array(256)
+
+    expect(voiceBinFromBuffer(data.buffer as ArrayBuffer, 'af_heart')?.length).toBe(256)
   })
 })

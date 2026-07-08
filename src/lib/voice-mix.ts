@@ -17,9 +17,12 @@ export async function fetchVoiceBin(voiceId: string): Promise<Float32Array> {
     const cached = await cache.match(url)
     if (cached) {
       const buf = await cached.arrayBuffer()
-      const data = new Float32Array(buf)
-      binCache.set(voiceId, data)
-      return data
+      const data = voiceBinFromBuffer(buf, voiceId)
+      if (data) {
+        binCache.set(voiceId, data)
+        return data
+      }
+      await cache.delete(url)
     }
   } catch { /* cache unavailable */ }
 
@@ -29,9 +32,18 @@ export async function fetchVoiceBin(voiceId: string): Promise<Float32Array> {
   if (cache) {
     try { await cache.put(url, new Response(buf, { headers: res.headers })) } catch { /* ignore */ }
   }
-  const data = new Float32Array(buf)
+  const data = voiceBinFromBuffer(buf, voiceId)
+  if (!data) throw new Error(`Invalid voice bin payload for ${voiceId}`)
   binCache.set(voiceId, data)
   return data
+}
+
+export function voiceBinFromBuffer(buf: ArrayBuffer, voiceId: string): Float32Array | null {
+  if (buf.byteLength % 4 !== 0 || buf.byteLength < 256 * 4) {
+    console.warn(`Discarding invalid voice bin payload for ${voiceId}`)
+    return null
+  }
+  return new Float32Array(buf)
 }
 
 export type VoiceMixEntry = {

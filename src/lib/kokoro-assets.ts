@@ -81,7 +81,7 @@ export function installKokoroAssetFallback(): void {
     if (isFetchableAssetRequest(input, init) && isSelfHostedKokoroAsset(relativePath)) {
       try {
         const localResponse = await originalFetch(kokoroLocalAssetUrl(relativePath), localFetchInit(input, init))
-        if (localResponse.ok) return localResponse
+        if (localResponse.ok && !isHtmlFallback(localResponse)) return localResponse
       } catch {
         /* fall through to Hugging Face */
       }
@@ -89,6 +89,10 @@ export function installKokoroAssetFallback(): void {
 
     return fetchHfWithRetry(originalFetch, input, init)
   }) as typeof fetch
+}
+
+function isHtmlFallback(response: Response): boolean {
+  return response.headers.get('content-type')?.toLowerCase().includes('text/html') ?? false
 }
 
 function isFetchableAssetRequest(input: RequestInfo | URL, init?: RequestInit): boolean {

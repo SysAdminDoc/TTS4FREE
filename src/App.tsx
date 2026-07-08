@@ -25,6 +25,7 @@ import { Component, type ChangeEvent, type ErrorInfo, type ReactNode, useEffect,
 import './App.css'
 import { type AudioFormat, encodeAudio, formatExtension, mixBgm, opusSupported, shiftPitch } from './lib/encode.ts'
 import { KOKORO_SAMPLE_RATE, type ProgressInfo, type RawAudioLike, loadKokoro, probeWebGpu, resetKokoroSession } from './lib/kokoro.ts'
+import { loadTimestampedKokoro, resetTimestampedKokoroSession, synthesizeTimestampedKokoro } from './lib/kokoro-timestamps.ts'
 import { generateWorker, loadKokoroWorker, resetWorker } from './lib/kokoro-worker.ts'
 import { type VoiceMixEntry, blendVoiceBins, fetchVoiceBin, formatMixFormula } from './lib/voice-mix.ts'
 import { type ClipRecord, clearLibrary, deleteClip, enforceLibraryCap, getClipBlob, listClips, saveClip } from './lib/library.ts'
@@ -71,6 +72,7 @@ Download as WAV or MP3 when you're done.`
 
 const MODEL_ROWS = [
   ['Kokoro 82M', 'Kokoro local', '82M', 'English US / GB', 'Ready'],
+  ['Kokoro timestamped', 'Kokoro local', '82M', 'Word-level timings', 'Opt-in'],
   ['Supertonic', 'Transformers.js', '66M', 'English speed engine', 'Ready'],
   ['Kokoro multilingual', 'Planned local pack', '137M+', 'JP / ZH / ES / FR / HI / IT / PT', 'Next'],
   ['Browser voices', 'Web Speech', 'Native', 'Device voices', 'Fallback'],
@@ -311,6 +313,7 @@ function App() {
   const [audioFormat, setAudioFormat] = useState<AudioFormat>('wav')
   const [mp3Bitrate, setMp3Bitrate] = useState(160)
   const [useWorker, setUseWorker] = useState(true)
+  const [wordTimestamps, setWordTimestamps] = useState(false)
   const [pitchSemitones, setPitchSemitones] = useState(0)
   const [bgmFile, setBgmFile] = useState<File | null>(null)
   const [bgmVolume, setBgmVolume] = useState(0.15)
@@ -564,13 +567,25 @@ function App() {
   type SynthesizedAudio = {
     samples: Float32Array
     sampleRate: number
+    wordCues?: Omit<Cue, 'index'>[]
   }
 
   type LoadedEngine = {
     synthesize: (text: string, voice: string, speed: number, voiceBin?: Float32Array) => Promise<SynthesizedAudio | null>
   }
 
-  async function ensureKokoroEngine(onProgress: (info: ProgressInfo) => void): Promise<LoadedEngine> {
+  async function ensureKokoroEngine(
+    onProgress: (info: ProgressInfo) => void,
+    opts: { wordTimestamps?: boolean } = { wordTimestamps },
+  ): Promise<LoadedEngine> {
+    if (opts.wordTimestamps) {
+      const tts = await loadTimestampedKokoro(onProgress)
+      setRuntimeLabel('WebAssembly q8 + word timestamps')
+      return {
+        synthesize: (text, voice, spd, bin) => synthesizeTimestampedKokoro(tts, text, voice, spd, bin),
+      }
+    }
+
     const hasGpu = !forceWasm && (await probeWebGpu())
     if (useWorker) {
       try {
@@ -695,7 +710,16 @@ function App() {
             totalChars += sentence.length
             const startSec = sampleOffset / outputSampleRate
             sampleOffset += audio.samples.length
-            cues.push({ index: cueIndex++, startSec, endSec: sampleOffset / outputSampleRate, text: sentence })
+            const endSec = sampleOffset / outputSampleRate
+            if (audio.wordCues?.length) {
+              for (const cue of audio.wordCues) {
+                const wordStart = Math.max(startSec, Math.min(endSec, startSec + cue.startSec))
+                const wordEnd = Math.max(wordStart, Math.min(endSec, startSec + cue.endSec))
+                if (wordEnd > wordStart) cues.push({ index: cueIndex++, startSec: wordStart, endSec: wordEnd, text: cue.text })
+              }
+            } else {
+              cues.push({ index: cueIndex++, startSec, endSec, text: sentence })
+            }
             if (audioCtx) {
               const buf = audioCtx.createBuffer(1, audio.samples.length, outputSampleRate)
               buf.getChannelData(0).set(audio.samples)
@@ -1117,7 +1141,7 @@ function App() {
       const onProgress = (info: { status?: string; file?: string; loaded?: number; total?: number }) => {
         if (info.status === 'ready') setStatus('Model ready')
       }
-      const { synthesize } = await ensureKokoroEngine(onProgress)
+      const { synthesize } = await ensureKokoroEngine(onProgress, { wordTimestamps: false })
 
       for (const chunk of job.chunks) {
         if (abortRef.current) break
@@ -1794,10 +1818,15 @@ function App() {
                       </span>
                     </label>
                     <label className="toggle-row">
-                      <input type="checkbox" checked={useWorker} onChange={(event) => setUseWorker(event.target.checked)} />
+                      <input
+                        type="checkbox"
+                        checked={useWorker && !wordTimestamps}
+                        disabled={wordTimestamps}
+                        onChange={(event) => setUseWorker(event.target.checked)}
+                      />
                       <span>
                         Background worker
-                        <small>Run inference off main thread for smoother UI.</small>
+                        <small>{wordTimestamps ? 'Disabled while word timestamps are on.' : 'Run inference off main thread for smoother UI.'}</small>
                       </span>
                     </label>
                     <label className="toggle-row">
@@ -1812,12 +1841,28 @@ function App() {
                             window.localStorage.setItem('bettertts-backend', next ? 'wasm' : 'auto')
                           } catch { /* storage blocked */ }
                           resetKokoroSession()
+                          resetTimestampedKokoroSession()
                           resetWorker()
                         }}
                       />
                       <span>
                         CPU mode (WASM)
                         <small>Use if audio sounds corrupted or distorted on your GPU.</small>
+                      </span>
+                    </label>
+                    <label className="toggle-row">
+                      <input
+                        type="checkbox"
+                        checked={wordTimestamps}
+                        disabled={isGenerating}
+                        onChange={(event) => {
+                          setWordTimestamps(event.target.checked)
+                          resetTimestampedKokoroSession()
+                        }}
+                      />
+                      <span>
+                        Word timestamps
+                        <small>Opt in to the timestamped q8 model for word-level SRT/VTT and follow-along highlighting.</small>
                       </span>
                     </label>
                   </>
@@ -2058,7 +2103,7 @@ function App() {
         <section className="technical-note" id="docs">
           <span>How it works</span>
           <p>
-            Kokoro 82M and Supertonic run locally in your browser via Transformers.js. Kokoro WASM q8 loads from this site first; Supertonic and Kokoro WebGPU fp32 remain HF-hosted. No server involved.
+            Kokoro 82M and Supertonic run locally in your browser via Transformers.js. Kokoro base WASM q8 loads from this site first; timestamped Kokoro, Supertonic, and Kokoro WebGPU fp32 remain HF-hosted. No server involved.
           </p>
           <a href="https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX" target="_blank" rel="noreferrer">
             Model card <ExternalLink size={15} aria-hidden="true" />
@@ -2123,6 +2168,7 @@ git subtree push --prefix dist origin gh-pages
             disabled={isGenerating}
             onClick={() => {
               resetKokoroSession()
+              resetTimestampedKokoroSession()
               resetWorker()
               for (const url of previewCacheRef.current.values()) {
                 URL.revokeObjectURL(url)
