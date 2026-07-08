@@ -12,5 +12,15 @@ createRoot(document.getElementById('root')!).render(
 )
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL }).catch(() => {})
+  navigator.serviceWorker
+    .register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL })
+    .then((reg) => {
+      reg.addEventListener('updatefound', () => {
+        if (!window.crossOriginIsolated) window.location.reload()
+      })
+      if (reg.active && !navigator.serviceWorker.controller && !window.crossOriginIsolated) {
+        window.location.reload()
+      }
+    })
+    .catch(() => {})
 }

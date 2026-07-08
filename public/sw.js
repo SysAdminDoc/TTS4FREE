@@ -16,17 +16,29 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url)
 
   if (event.request.method !== 'GET') return
-  if (url.origin !== self.location.origin) return
   if (url.pathname.includes('/api/')) return
 
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        if (response.ok && response.type === 'basic') {
-          const clone = response.clone()
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone))
+        if (!response.ok || response.type === 'opaque') return response
+
+        const headers = new Headers(response.headers)
+        headers.set('Cross-Origin-Embedder-Policy', 'require-corp')
+        headers.set('Cross-Origin-Opener-Policy', 'same-origin')
+        headers.set('Cross-Origin-Resource-Policy', 'cross-origin')
+
+        const enhanced = new Response(response.body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers,
+        })
+
+        if (url.origin === self.location.origin && response.type === 'basic') {
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, enhanced.clone()))
         }
-        return response
+
+        return enhanced
       })
       .catch(() => caches.match(event.request))
   )
