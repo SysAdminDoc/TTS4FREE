@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.10.0 - 2026-07-08
+
+### Features
+- **Voice blending** — weighted mix of 2-4 Kokoro voices via custom style tensors; blend editor with per-voice weight sliders in the Advanced section (TF-22).
+- **Opus/WebM export** — via WebCodecs AudioEncoder with a hand-crafted minimal Matroska muxer; capability-detected and hidden when unsupported (TF-73).
+- **Persistent job queue** — queue text for batch generation with IndexedDB checkpointing; pause, resume, and ZIP download survive tab close and page reloads (TF-76).
+- **EPUB import** — chapter-aware parsing via fflate with NCX/EPUB3-nav TOC title extraction; chapters are queued for batch generation; empty chapters are reported (TF-24).
+
+### Tests
+- 87 → 91 assertions across 8 suites (voice-mix, queue, and EPUB parser modules added).
+
 ## v0.9.0 - 2026-07-08
 
 ### Fixed

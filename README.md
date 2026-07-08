@@ -1,13 +1,13 @@
 # BetterTTS
 
-[![Version](https://img.shields.io/badge/version-0.9.0-blue.svg)](#)
+[![Version](https://img.shields.io/badge/version-0.10.0-blue.svg)](#)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-GitHub%20Pages-24292f.svg)](https://sysadmindoc.github.io/BetterTTS/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178c6.svg)](#)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](#)
-[![Tests](https://img.shields.io/badge/tests-70%20passing-53d889.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-91%20passing-53d889.svg)](#)
 
-**Free client-side text-to-speech studio.** Kokoro 82M runs entirely in your browser — no server, no signup, no usage caps (5,000 characters per run, unlimited runs). Export WAV or MP3, keep everything private.
+**Free client-side text-to-speech studio.** Kokoro 82M runs entirely in your browser — no server, no signup, no usage caps (5,000 characters per run, unlimited runs). Export WAV, MP3, or Opus — keep everything private.
 
 [**Try it live**](https://sysadmindoc.github.io/BetterTTS/) | [Changelog](CHANGELOG.md)
 
@@ -41,7 +41,7 @@ Every cloud TTS service gates you behind signups, character limits, and paid tie
 - **Web Speech API fallback** — device-native voices when Kokoro can't run, with full browser voice picker
 
 ### Export & Output
-- **WAV** (lossless) and **MP3** (96/128/160 kbps — 160 is the MPEG ceiling at Kokoro's 24 kHz) export with format and bitrate picker
+- **WAV** (lossless), **MP3** (96/128/160 kbps), and **Opus/WebM** (via WebCodecs AudioEncoder, where supported) export
 - **Per-line generation** with individual files + automatic ZIP bundle
 - **SRT and VTT subtitle export** with sentence-level timing derived from audio sample counts
 - **Persistent clip library** — generated clips saved to IndexedDB, survive page reloads
@@ -63,6 +63,9 @@ Every cloud TTS service gates you behind signups, character limits, and paid tie
 - **Pronunciation dictionary** — custom word/replacement pairs persisted in localStorage
 - **Generation stats** — elapsed time, chars/s throughput, audio duration, realtime speed factor
 - **Cancel button** — abort generation mid-run, keep partial results
+- **Voice blending** — weighted mix of 2-4 Kokoro voices via custom style tensors (e.g. `af_heart(2)+af_bella(1)`)
+- **EPUB import** — chapter-aware parsing with TOC title extraction, queued for batch generation
+- **Persistent job queue** — queue, pause, resume, and ZIP-download survive tab close via IndexedDB checkpointing
 - **CPU mode** — persistent WASM switch for GPUs with corrupted WebGPU output
 
 ### Platform
