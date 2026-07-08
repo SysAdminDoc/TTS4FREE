@@ -1,6 +1,7 @@
 export type VoiceId =
   | 'am_adam' | 'am_puck' | 'am_liam' | 'af_heart' | 'af_bella' | 'af_nova'
-  | 'af_alloy' | 'af_jessica' | 'af_kore' | 'af_nicole' | 'af_river' | 'af_sarah'
+  | 'af_alloy' | 'af_aoede' | 'af_jessica' | 'af_kore' | 'af_nicole' | 'af_river'
+  | 'af_sarah' | 'af_sky'
   | 'am_echo' | 'am_eric' | 'am_fenrir' | 'am_michael' | 'am_onyx' | 'am_santa'
   | 'bf_alice' | 'bf_emma' | 'bf_isabella' | 'bf_lily'
   | 'bm_daniel' | 'bm_fable' | 'bm_george' | 'bm_lewis'
@@ -21,11 +22,13 @@ export const VOICES: Voice[] = [
   { id: 'af_bella', name: 'Bella', locale: 'en-us', gender: 'Female', grade: 'A-' },
   { id: 'af_nova', name: 'Nova', locale: 'en-us', gender: 'Female', grade: 'C' },
   { id: 'af_alloy', name: 'Alloy', locale: 'en-us', gender: 'Female', grade: 'C' },
+  { id: 'af_aoede', name: 'Aoede', locale: 'en-us', gender: 'Female', grade: 'C+' },
   { id: 'af_jessica', name: 'Jessica', locale: 'en-us', gender: 'Female', grade: 'D' },
   { id: 'af_kore', name: 'Kore', locale: 'en-us', gender: 'Female', grade: 'C+' },
   { id: 'af_nicole', name: 'Nicole', locale: 'en-us', gender: 'Female', grade: 'B-' },
   { id: 'af_river', name: 'River', locale: 'en-us', gender: 'Female', grade: 'D' },
   { id: 'af_sarah', name: 'Sarah', locale: 'en-us', gender: 'Female', grade: 'C+' },
+  { id: 'af_sky', name: 'Sky', locale: 'en-us', gender: 'Female', grade: 'C-' },
   { id: 'am_echo', name: 'Echo', locale: 'en-us', gender: 'Male', grade: 'D' },
   { id: 'am_eric', name: 'Eric', locale: 'en-us', gender: 'Male', grade: 'D' },
   { id: 'am_fenrir', name: 'Fenrir', locale: 'en-us', gender: 'Male', grade: 'C+' },
