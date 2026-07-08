@@ -22,6 +22,7 @@ import './App.css'
 import { KOKORO_SAMPLE_RATE, type RawAudioLike, loadKokoro, probeWebGpu, resetKokoroSession } from './lib/kokoro.ts'
 import { PAUSE_TAG, formatBytes, parsePauseTags, slugify, splitInput, splitIntoSentences } from './lib/text.ts'
 import { VOICES } from './lib/voices.ts'
+import { type Cue, toSRT, toVTT } from './lib/subtitles.ts'
 import { concatFloat32Arrays, encodeWav } from './lib/wav.ts'
 import { speakBrowser } from './lib/webspeech.ts'
 
@@ -39,6 +40,7 @@ type AudioResult = {
   size: string
   url?: string
   replayText?: string
+  cues?: Cue[]
 }
 
 type Toast = {
@@ -289,11 +291,16 @@ function App() {
       if (abortRef.current) break
       const plan = chunkPlans[index]
       const audioParts: Float32Array[] = []
+      const cues: Cue[] = []
+      let sampleOffset = 0
+      let cueIndex = 1
 
       for (const seg of plan) {
         if (abortRef.current) break
         if (seg.type === 'pause') {
-          audioParts.push(new Float32Array(Math.round(seg.duration * KOKORO_SAMPLE_RATE)))
+          const silence = new Float32Array(Math.round(seg.duration * KOKORO_SAMPLE_RATE))
+          audioParts.push(silence)
+          sampleOffset += silence.length
           continue
         }
         for (const sentence of seg.sentences) {
@@ -302,7 +309,13 @@ function App() {
             voice: selectedVoice.id,
             speed,
           })) as RawAudioLike
-          if (audio.audio) audioParts.push(audio.audio)
+          const samples = audio.audio
+          if (samples) {
+            audioParts.push(samples)
+            const startSec = sampleOffset / KOKORO_SAMPLE_RATE
+            sampleOffset += samples.length
+            cues.push({ index: cueIndex++, startSec, endSec: sampleOffset / KOKORO_SAMPLE_RATE, text: sentence })
+          }
           done++
           setProgress(35 + Math.round((done / totalSentences) * 55))
           setStatus(`Generated ${done} / ${totalSentences}`)
@@ -322,6 +335,7 @@ function App() {
         chunks.length === 1 ? slugify(chunks[index]) : `${String(index + 1).padStart(3, '0')}-${slugify(chunks[index])}`
       const filename = `${baseName}-${timestamp()}.wav`
       const result = await buildResult(blob, chunks[index].slice(0, 64), filename)
+      result.cues = cues
 
       generated.push(result)
       zipFiles[filename] = blob
@@ -568,8 +582,26 @@ function App() {
                         {result.url ? (
                           <a href={result.url} download={result.filename}>
                             <Download size={16} aria-hidden="true" />
-                            Download WAV
+                            WAV
                           </a>
+                        ) : null}
+                        {result.cues && result.cues.length > 0 ? (
+                          <>
+                            <a
+                              href={rememberUrl(URL.createObjectURL(new Blob([toSRT(result.cues)], { type: 'text/plain' })))}
+                              download={result.filename.replace(/\.wav$/, '.srt')}
+                            >
+                              <FileText size={16} aria-hidden="true" />
+                              SRT
+                            </a>
+                            <a
+                              href={rememberUrl(URL.createObjectURL(new Blob([toVTT(result.cues)], { type: 'text/vtt' })))}
+                              download={result.filename.replace(/\.wav$/, '.vtt')}
+                            >
+                              <FileText size={16} aria-hidden="true" />
+                              VTT
+                            </a>
+                          </>
                         ) : null}
                       </div>
                     </div>
