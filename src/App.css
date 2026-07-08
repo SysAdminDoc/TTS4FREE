@@ -187,7 +187,7 @@ footer button {
 .editor-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   margin: 12px 0 26px;
 }
 
@@ -278,6 +278,14 @@ button:disabled {
   padding: 12px 14px;
 }
 
+.result-row {
+  transition: border-color 160ms ease;
+}
+
+.result-row:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-strong));
+}
+
 .result-meta {
   display: flex;
   align-items: center;
@@ -320,6 +328,8 @@ button:disabled {
   justify-self: start;
   color: var(--heading);
   background: color-mix(in srgb, var(--success) 20%, var(--surface-1));
+  border-color: color-mix(in srgb, var(--success) 40%, var(--border));
+  font-weight: 650;
 }
 
 .library-row {
@@ -698,11 +708,13 @@ select:focus-visible {
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 20px;
-  margin: 20px 24px;
-  padding: 14px 16px;
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
-  border-radius: 8px;
+  gap: 16px;
+  margin: 0;
+  padding: 16px 30px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--accent) 3%, var(--surface-0));
 }
 
 .technical-note span {
@@ -737,7 +749,6 @@ select:focus-visible {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(360px, 0.85fr);
   min-width: 0;
-  border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
 
@@ -863,27 +874,45 @@ footer {
 
 .fatal-panel {
   width: min(520px, calc(100vw - 40px));
-  padding: 28px;
+  padding: 32px;
   border: 1px solid var(--border-strong);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--surface-1);
   box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.fatal-panel svg {
+  color: var(--danger);
 }
 
 .fatal-panel h1 {
-  margin: 14px 0 8px;
+  margin: 16px 0 8px;
   color: var(--heading);
-  font-size: 24px;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.fatal-panel p {
+  margin: 0 0 20px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .fatal-panel button {
-  margin-top: 18px;
-  min-height: 38px;
-  padding: 0 14px;
-  border: 1px solid var(--border-strong);
+  min-height: 40px;
+  padding: 0 20px;
+  border: 1px solid var(--accent);
   border-radius: 8px;
-  background: var(--surface-2);
-  color: var(--heading);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.fatal-panel button:hover {
+  filter: brightness(1.1);
 }
 
 .app-shell svg {
@@ -974,14 +1003,18 @@ footer {
     padding-right: 11px;
   }
 
-  .engine-grid,
-  .voice-buttons {
+  .engine-grid {
     grid-template-columns: 1fr;
+  }
+
+  .voice-buttons {
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .technical-note {
     grid-template-columns: 1fr;
-    margin: 16px;
+    padding: 16px;
+    gap: 10px;
   }
 
   table {

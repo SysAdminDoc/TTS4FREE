@@ -52,15 +52,13 @@ type Toast = {
   message: string
 }
 
-const STARTER_TEXT = `BetterTTS is a free client-side text-to-speech web app.
+const STARTER_TEXT = `Welcome to BetterTTS — free text-to-speech that runs entirely in your browser.
 
-It recreates the practical workflow of voice-generator.com without needing a private backend.
+No server, no signup, no character limits. Your text never leaves this device.
 
-Choose a voice. Select an engine.
-Click Generate audio and download your WAV.
+Pick a voice from the panel on the right, then click Generate audio. The Kokoro 82M neural model will synthesize your text into natural-sounding speech.
 
-Kokoro runs locally in your browser when supported.
-Browser fallback keeps playback working everywhere.`
+Download as WAV or MP3 when you're done.`
 
 const MODEL_ROWS = [
   ['Kokoro 82M', 'Kokoro local', '82M', 'English US / GB', 'Ready'],
@@ -121,11 +119,11 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
       return (
         <main className="fatal-shell">
           <section className="fatal-panel">
-            <AlertCircle aria-hidden="true" />
-            <h1>BetterTTS hit a render error</h1>
+            <AlertCircle size={32} aria-hidden="true" />
+            <h1>Something went wrong</h1>
             <p>{this.state.error.message}</p>
             <button type="button" onClick={() => window.location.reload()}>
-              Reload
+              Reload page
             </button>
           </section>
         </main>
@@ -914,7 +912,7 @@ function App() {
               )}
               <p className="privacy-note">
                 <Info size={16} aria-hidden="true" />
-                Text and generated audio stay in this browser. Kokoro downloads model files from Hugging Face the first time.
+                100% private — your text and audio never leave this browser. Model files are downloaded once and cached locally.
               </p>
             </section>
 
@@ -1323,10 +1321,9 @@ function App() {
         </section>
 
         <section className="technical-note" id="docs">
-          <span>Technical note</span>
+          <span>How it works</span>
           <p>
-            BetterTTS is static. Kokoro runs in-browser through Transformers.js and caches model files locally after first load.
-            Browser fallback uses the Web Speech API for playback only.
+            Kokoro 82M runs locally in your browser via Transformers.js. The model downloads once (~92 MB) and caches for instant reuse. No server involved.
           </p>
           <a href="https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX" target="_blank" rel="noreferrer">
             Model card <ExternalLink size={15} aria-hidden="true" />
