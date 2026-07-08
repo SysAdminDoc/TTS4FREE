@@ -19,16 +19,42 @@ export function parsePauseTags(text: string): TextSegment[] {
   return segments.length > 0 ? segments : [{ type: 'text', content: text.trim() }]
 }
 
+const MAX_CHUNK_CHARS = 300
+
+// Kokoro's tokenizer silently truncates past ~510 phoneme tokens, so no single
+// chunk may exceed MAX_CHUNK_CHARS even when the text has no sentence punctuation.
+function hardSplit(sentence: string): string[] {
+  if (sentence.length <= MAX_CHUNK_CHARS) return [sentence]
+
+  const parts: string[] = []
+  let rest = sentence
+  while (rest.length > MAX_CHUNK_CHARS) {
+    const window = rest.slice(0, MAX_CHUNK_CHARS)
+    let cut = Math.max(window.lastIndexOf(','), window.lastIndexOf(';'), window.lastIndexOf(':'))
+    if (cut < MAX_CHUNK_CHARS * 0.4) cut = window.lastIndexOf(' ')
+    if (cut <= 0) {
+      cut = MAX_CHUNK_CHARS
+    } else {
+      cut += 1
+    }
+    const part = rest.slice(0, cut).trim()
+    if (part) parts.push(part)
+    rest = rest.slice(cut).trim()
+  }
+  if (rest) parts.push(rest)
+  return parts
+}
+
 export function splitIntoSentences(text: string): string[] {
   if (!text.trim()) return []
-  const sentences = text.split(/(?<=[.!?])\s+/).filter(Boolean)
+  const sentences = text.split(/(?<=[.!?])\s+/).filter(Boolean).flatMap(hardSplit)
   if (sentences.length === 0) return [text.trim()]
 
   const chunks: string[] = []
   let buffer = ''
 
   for (const s of sentences) {
-    if (buffer && buffer.length + s.length + 1 > 300) {
+    if (buffer && buffer.length + s.length + 1 > MAX_CHUNK_CHARS) {
       chunks.push(buffer)
       buffer = s
     } else {

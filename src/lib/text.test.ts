@@ -116,6 +116,39 @@ describe('splitIntoSentences', () => {
     expect(splitIntoSentences('')).toEqual([])
     expect(splitIntoSentences('   ')).toEqual([])
   })
+
+  it('hard-splits an unpunctuated run so no chunk exceeds 300 chars', () => {
+    const words = Array.from({ length: 250 }, (_, i) => `word${i}`).join(' ')
+    const result = splitIntoSentences(words)
+    expect(result.length).toBeGreaterThan(1)
+    for (const chunk of result) {
+      expect(chunk.length).toBeLessThanOrEqual(300)
+    }
+    expect(result.join(' ')).toBe(words)
+  })
+
+  it('prefers comma boundaries when hard-splitting', () => {
+    const clause = 'alpha beta gamma delta, '.repeat(20).trim().replace(/,$/, '')
+    const result = splitIntoSentences(clause)
+    for (const chunk of result) {
+      expect(chunk.length).toBeLessThanOrEqual(300)
+    }
+    expect(result.some((c) => c.endsWith(','))).toBe(true)
+  })
+
+  it('hard-splits a single giant token without whitespace', () => {
+    const giant = 'a'.repeat(950)
+    const result = splitIntoSentences(giant)
+    expect(result.length).toBe(4)
+    for (const chunk of result) {
+      expect(chunk.length).toBeLessThanOrEqual(300)
+    }
+    expect(result.join('')).toBe(giant)
+  })
+
+  it('leaves punctuated text under the limit untouched', () => {
+    expect(splitIntoSentences('Hello world. How are you?')).toEqual(['Hello world. How are you?'])
+  })
 })
 
 describe('parseDialogLines', () => {
