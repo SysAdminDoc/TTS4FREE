@@ -14,17 +14,37 @@ const DB_VERSION = 1
 const CLIPS_STORE = 'clips'
 const BLOBS_STORE = 'blobs'
 
+let dbPromise: Promise<IDBDatabase> | null = null
+
 function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  if (dbPromise) return dbPromise
+  dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION)
     req.onupgradeneeded = () => {
       const db = req.result
       if (!db.objectStoreNames.contains(CLIPS_STORE)) db.createObjectStore(CLIPS_STORE, { keyPath: 'id' })
       if (!db.objectStoreNames.contains(BLOBS_STORE)) db.createObjectStore(BLOBS_STORE)
     }
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
+    req.onblocked = () => {
+      dbPromise = null
+      reject(new Error('Clip library is blocked by another open tab.'))
+    }
+    req.onsuccess = () => {
+      const db = req.result
+      // If another tab upgrades the schema, release this connection so the
+      // upgrade is never blocked by a zombie handle.
+      db.onversionchange = () => {
+        db.close()
+        dbPromise = null
+      }
+      resolve(db)
+    }
+    req.onerror = () => {
+      dbPromise = null
+      reject(req.error)
+    }
   })
+  return dbPromise
 }
 
 function txDone(tx: IDBTransaction): Promise<void> {

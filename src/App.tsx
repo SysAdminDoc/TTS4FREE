@@ -92,11 +92,17 @@ async function getDurationLabel(blob: Blob) {
     audio.preload = 'metadata'
 
     return await new Promise<string>((resolve) => {
+      // Some blobs fire neither loadedmetadata nor error; never hang the pipeline.
+      const fallback = setTimeout(() => resolve('ready'), 5000)
       audio.onloadedmetadata = () => {
+        clearTimeout(fallback)
         const duration = Number.isFinite(audio.duration) ? audio.duration : 0
         resolve(`${duration.toFixed(1)}s`)
       }
-      audio.onerror = () => resolve('ready')
+      audio.onerror = () => {
+        clearTimeout(fallback)
+        resolve('ready')
+      }
       audio.src = url
     })
   } finally {
@@ -255,10 +261,16 @@ function App() {
   }, [])
 
   useEffect(() => {
+    const objectUrls = objectUrlsRef.current
+    const previewCache = previewCacheRef.current
     return () => {
-      for (const url of objectUrlsRef.current) {
+      for (const url of objectUrls) {
         URL.revokeObjectURL(url)
       }
+      for (const url of previewCache.values()) {
+        URL.revokeObjectURL(url)
+      }
+      previewCache.clear()
     }
   }, [])
 
@@ -286,12 +298,19 @@ function App() {
   }
 
   function applyPronunciations(input: string): string {
-    let result = input
-    for (const [word, replacement] of Object.entries(pronunciations)) {
-      if (!word) continue
-      result = result.replaceAll(word, replacement)
-    }
-    return result
+    const entries = Object.entries(pronunciations).filter(([word]) => word)
+    if (entries.length === 0) return input
+    const map = new Map(entries)
+    // Single pass so one rule's output can never feed another rule; longest key
+    // first so overlapping entries match greedily; word-bounded so "cat" -> "kat"
+    // cannot corrupt "catalog".
+    const pattern = entries
+      .map(([word]) => word)
+      .sort((a, b) => b.length - a.length)
+      .map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('|')
+    const re = new RegExp(`(?<!\\w)(?:${pattern})(?!\\w)`, 'g')
+    return input.replace(re, (match) => map.get(match) ?? match)
   }
 
   async function buildResult(blob: Blob, label: string, filename: string, replayText?: string): Promise<AudioResult> {
@@ -1386,6 +1405,10 @@ git subtree push --prefix dist origin gh-pages
             onClick={() => {
               resetKokoroSession()
               resetWorker()
+              for (const url of previewCacheRef.current.values()) {
+                URL.revokeObjectURL(url)
+              }
+              previewCacheRef.current.clear()
               showToast({ tone: 'ok', message: 'Model cache handle reset for this page session.' })
             }}
           >
