@@ -57,7 +57,7 @@ export function slugify(value: string): string {
     .replace(/^-+|-+$/g, '')
     .slice(0, 42)
 
-  return slug || 'tts4free-audio'
+  return slug || 'bettertts-audio'
 }
 
 export type DialogLine = {

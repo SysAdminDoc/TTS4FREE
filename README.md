@@ -1,19 +1,27 @@
-# TTS4FREE v0.7.0
+# BetterTTS v0.7.0
 
 [![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)](#)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-GitHub%20Pages-24292f.svg)](#)
 
-TTS4FREE is a static text-to-speech studio built for GitHub Pages. It runs Kokoro 82M in the browser through `kokoro-js` and Transformers.js, then exports generated speech as WAV files. If the model cannot run on a device, the app falls back to the browser Web Speech API for playback.
+BetterTTS is a static text-to-speech studio built for GitHub Pages. It runs Kokoro 82M in the browser through `kokoro-js` and Transformers.js, then exports generated speech as WAV or MP3 files. If the model cannot run on a device, the app falls back to the browser Web Speech API for playback.
 
 ## Features
 
 - Client-side Kokoro generation with no private TTS server.
-- WAV download for Kokoro output.
+- WAV and MP3 download with bitrate picker.
+- Streaming playback — audio plays as each sentence generates.
+- Web Worker inference for responsive UI during generation.
 - Optional per-line generation with ZIP download.
-- English US and English British Kokoro voices.
+- Dialog mode with per-speaker voice mapping.
+- 28 English US and English British Kokoro voices with preview.
+- SRT/VTT subtitle export from sentence-level timing.
+- Persistent clip library backed by IndexedDB.
+- Pitch control (±4 semitones) and background music mixing.
+- Pronunciation override dictionary.
 - Browser speech fallback for wide compatibility.
 - Dark default UI with a light theme toggle.
+- Installable offline PWA with service worker.
 - Plain static build for GitHub Pages.
 
 ## Develop
@@ -26,6 +34,7 @@ npm run dev
 ## Verify
 
 ```powershell
+npm run test
 npm run lint
 npm run build
 ```

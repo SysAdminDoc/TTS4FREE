@@ -9,7 +9,7 @@ export type ClipRecord = {
   duration: string
 }
 
-const DB_NAME = 'tts4free-library'
+const DB_NAME = 'bettertts-library'
 const DB_VERSION = 1
 const CLIPS_STORE = 'clips'
 const BLOBS_STORE = 'blobs'

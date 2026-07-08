@@ -1,6 +1,6 @@
 {
-  "name": "TTS4FREE",
-  "short_name": "TTS4FREE",
+  "name": "BetterTTS",
+  "short_name": "BetterTTS",
   "description": "Static GitHub Pages text-to-speech studio with in-browser Kokoro generation.",
   "start_url": "./",
   "display": "standalone",

@@ -16,9 +16,9 @@ describe('slugify', () => {
   })
 
   it('returns fallback for empty/whitespace input', () => {
-    expect(slugify('')).toBe('tts4free-audio')
-    expect(slugify('   ')).toBe('tts4free-audio')
-    expect(slugify('!!!')).toBe('tts4free-audio')
+    expect(slugify('')).toBe('bettertts-audio')
+    expect(slugify('   ')).toBe('bettertts-audio')
+    expect(slugify('!!!')).toBe('bettertts-audio')
   })
 })
 

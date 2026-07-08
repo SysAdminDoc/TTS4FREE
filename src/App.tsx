@@ -52,7 +52,7 @@ type Toast = {
   message: string
 }
 
-const STARTER_TEXT = `TTS4FREE is a free client-side text-to-speech web app.
+const STARTER_TEXT = `BetterTTS is a free client-side text-to-speech web app.
 
 It recreates the practical workflow of voice-generator.com without needing a private backend.
 
@@ -72,7 +72,7 @@ const MODEL_ROWS = [
 function getInitialTheme(): Theme {
   if (typeof window === 'undefined') return 'dark'
   try {
-    const saved = window.localStorage.getItem('tts4free-theme')
+    const saved = window.localStorage.getItem('bettertts-theme')
     if (saved === 'light' || saved === 'dark') return saved
   } catch { /* storage blocked */ }
   if (window.matchMedia?.('(prefers-color-scheme: light)').matches) return 'light'
@@ -122,7 +122,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
         <main className="fatal-shell">
           <section className="fatal-panel">
             <AlertCircle aria-hidden="true" />
-            <h1>TTS4FREE hit a render error</h1>
+            <h1>BetterTTS hit a render error</h1>
             <p>{this.state.error.message}</p>
             <button type="button" onClick={() => window.location.reload()}>
               Reload
@@ -154,14 +154,14 @@ function App() {
   const [speakerMap, setSpeakerMap] = useState<Record<string, string>>({})
   const [pronunciations, setPronunciations] = useState<Record<string, string>>(() => {
     try {
-      const saved = window.localStorage.getItem('tts4free-pronunciations')
+      const saved = window.localStorage.getItem('bettertts-pronunciations')
       return saved ? JSON.parse(saved) : {}
     } catch { return {} }
   })
   const [text, setText] = useState(STARTER_TEXT)
   const [results, setResults] = useState<AudioResult[]>([])
   const [zipUrl, setZipUrl] = useState<string | null>(null)
-  const [zipName, setZipName] = useState('tts4free-audio.zip')
+  const [zipName, setZipName] = useState('bettertts-audio.zip')
   const [toast, setToast] = useState<Toast | null>(null)
   const [progress, setProgress] = useState<number | null>(null)
   const [status, setStatus] = useState('Ready')
@@ -196,11 +196,11 @@ function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
-    try { window.localStorage.setItem('tts4free-theme', theme) } catch { /* storage blocked */ }
+    try { window.localStorage.setItem('bettertts-theme', theme) } catch { /* storage blocked */ }
   }, [theme])
 
   useEffect(() => {
-    try { window.localStorage.setItem('tts4free-pronunciations', JSON.stringify(pronunciations)) } catch {}
+    try { window.localStorage.setItem('bettertts-pronunciations', JSON.stringify(pronunciations)) } catch {}
   }, [pronunciations])
 
   useEffect(() => {
@@ -241,8 +241,8 @@ function App() {
     const handler = (e: Event) => {
       const el = e.target as HTMLAudioElement
       if (el.tagName !== 'AUDIO') return
-      const label = el.getAttribute('aria-label') ?? 'TTS4FREE'
-      navigator.mediaSession.metadata = new MediaMetadata({ title: label, artist: 'TTS4FREE' })
+      const label = el.getAttribute('aria-label') ?? 'BetterTTS'
+      navigator.mediaSession.metadata = new MediaMetadata({ title: label, artist: 'BetterTTS' })
       navigator.mediaSession.setActionHandler('play', () => el.play())
       navigator.mediaSession.setActionHandler('pause', () => el.pause())
     }
@@ -450,7 +450,7 @@ function App() {
       }
       const zipBlob = await zip.generateAsync({ type: 'blob' })
       setZipUrl(rememberUrl(URL.createObjectURL(zipBlob)))
-      setZipName(`tts4free-${timestamp()}.zip`)
+      setZipName(`bettertts-${timestamp()}.zip`)
     }
 
     setProgress(100)
@@ -573,7 +573,7 @@ function App() {
       for (const [fn, b] of Object.entries(zipFiles)) zip.file(fn, b)
       const zipBlob = await zip.generateAsync({ type: 'blob' })
       setZipUrl(rememberUrl(URL.createObjectURL(zipBlob)))
-      setZipName(`tts4free-dialog-${timestamp()}.zip`)
+      setZipName(`bettertts-dialog-${timestamp()}.zip`)
     }
 
     setProgress(100)
@@ -757,11 +757,11 @@ function App() {
   return (
       <main className="app-shell">
         <header className="topbar">
-          <a className="brand" href="#studio" aria-label="TTS4FREE home">
+          <a className="brand" href="#studio" aria-label="BetterTTS home">
             <span className="brand-mark" aria-hidden="true">
               <Waves size={25} strokeWidth={2.2} />
             </span>
-            <span>TTS4FREE</span>
+            <span>BetterTTS</span>
           </a>
           <nav className="nav-links" aria-label="Primary">
             <a href="#studio" aria-current="page">
@@ -769,7 +769,7 @@ function App() {
             </a>
             <a href="#models">Models</a>
             <a href="#docs">Docs</a>
-            <a href="https://github.com/SysAdminDoc/TTS4FREE" target="_blank" rel="noreferrer">
+            <a href="https://github.com/SysAdminDoc/BetterTTS" target="_blank" rel="noreferrer">
               GitHub <ExternalLink size={14} aria-hidden="true" />
             </a>
           </nav>
@@ -1319,7 +1319,7 @@ function App() {
         <section className="technical-note" id="docs">
           <span>Technical note</span>
           <p>
-            TTS4FREE is static. Kokoro runs in-browser through Transformers.js and caches model files locally after first load.
+            BetterTTS is static. Kokoro runs in-browser through Transformers.js and caches model files locally after first load.
             Browser fallback uses the Web Speech API for playback only.
           </p>
           <a href="https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX" target="_blank" rel="noreferrer">
@@ -1365,7 +1365,7 @@ function App() {
               <span>Hosting on GitHub Pages</span>
               <SquareCode size={18} aria-hidden="true" />
             </div>
-            <p>TTS4FREE builds to plain static files. No backend, no database, no GitHub Actions.</p>
+            <p>BetterTTS builds to plain static files. No backend, no database, no GitHub Actions.</p>
             <pre>
               <code>{`npm install
 npm run build
@@ -1379,7 +1379,7 @@ git subtree push --prefix dist origin gh-pages
         </section>
 
         <footer>
-          <span>TTS4FREE v{APP_VERSION}</span>
+          <span>BetterTTS v{APP_VERSION}</span>
           <button
             type="button"
             onClick={() => {
