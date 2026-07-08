@@ -5,9 +5,9 @@
 [![Platform](https://img.shields.io/badge/platform-GitHub%20Pages-24292f.svg)](https://sysadmindoc.github.io/BetterTTS/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178c6.svg)](#)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](#)
-[![Tests](https://img.shields.io/badge/tests-103%20passing-53d889.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-106%20passing-53d889.svg)](#)
 
-**Free client-side text-to-speech studio.** Kokoro 82M runs entirely in your browser — no server, no signup, no usage caps (5,000 characters per run, unlimited runs). Export WAV, MP3, or Opus — keep everything private.
+**Free client-side text-to-speech studio.** Kokoro 82M runs entirely in your browser — no server, no signup, no usage caps (5,000 characters per run, unlimited runs). Export WAV, MP3, Opus, or chaptered M4B — keep everything private.
 
 [**Try it live**](https://sysadmindoc.github.io/BetterTTS/) | [Changelog](CHANGELOG.md)
 
@@ -43,7 +43,7 @@ Every cloud TTS service gates you behind signups, character limits, and paid tie
 - **Web Speech API fallback** — device-native voices when Kokoro can't run, with full browser voice picker
 
 ### Export & Output
-- **WAV** (lossless), **MP3** (96/128/160 kbps), and **Opus/WebM** (via WebCodecs AudioEncoder, where supported) export
+- **WAV** (lossless), **MP3** (96/128/160 kbps), **Opus/WebM**, and **chaptered M4B audiobook** export
 - **Per-line generation** with individual files + automatic ZIP bundle
 - **SRT and VTT subtitle export** with sentence-level timing, plus opt-in word-level cues from the timestamped Kokoro model
 - **Persistent clip library** — generated clips saved to IndexedDB, survive page reloads
@@ -67,7 +67,7 @@ Every cloud TTS service gates you behind signups, character limits, and paid tie
 - **Cancel button** — abort generation mid-run, keep partial results
 - **Voice blending** — weighted mix of 2-4 Kokoro voices via custom style tensors (e.g. `af_heart(2)+af_bella(1)`)
 - **EPUB import** — chapter-aware parsing with TOC title extraction, queued for batch generation
-- **Persistent job queue** — queue, pause, resume, and ZIP-download survive tab close via IndexedDB checkpointing
+- **Persistent job queue** — queue, pause, resume, ZIP-download, and M4B audiobook export survive tab close via IndexedDB checkpointing
 - **CPU mode** — persistent WASM switch for GPUs with corrupted WebGPU output
 
 ### Platform
@@ -108,11 +108,12 @@ Open `http://localhost:5173/BetterTTS/` in your browser.
 | Build | Vite 8 |
 | TTS Model | Kokoro 82M via `kokoro-js` 1.2.1 + Transformers.js; timestamped Kokoro via direct ONNX output; Supertonic via Transformers.js |
 | MP3 Encoding | `@breezystack/lamejs` (LGPL-2.1, browser LAME) |
+| M4B Export | WebCodecs AAC + direct ISO BMFF writer with QuickTime/Nero chapter metadata |
 | Pitch Shifting | `signalsmith-stretch` (MIT, AudioWorklet/WASM) |
 | Phonemization | `phonemizer` (Apache-2.0, eSpeak NG WASM) |
 | ZIP Packaging | `fflate` |
 | Icons | `lucide-react` |
-| Testing | Vitest (103 assertions across 11 suites) |
+| Testing | Vitest (106 assertions across 12 suites) |
 | Linting | oxlint |
 | Hosting | GitHub Pages (static, no backend) |
 
@@ -131,6 +132,7 @@ src/
 │   ├── kokoro-worker.ts     # Web Worker client interface
 │   ├── supertonic.ts        # Supertonic pipeline loader and voice metadata
 │   ├── encode.ts            # WAV/MP3 encoding, pitch shift, BGM mixing
+│   ├── m4b.ts               # WebCodecs AAC + M4B chapter muxing
 │   ├── wav.ts               # Raw PCM → WAV encoder
 │   ├── text.ts              # Sentence splitting, pause parsing, slugify
 │   ├── voices.ts            # 28-voice catalog with quality grades
@@ -200,7 +202,6 @@ Planned features (see [ROADMAP.md](ROADMAP.md) for details):
 - Multilingual Kokoro pack (es/fr/it/pt/hi)
 - Additional engine support (KittenTTS, Piper)
 - Transformers.js v4 migration for WebGPU speedups
-- M4B chaptered audiobook export
 
 ## Contributing
 

@@ -29,6 +29,7 @@ import { loadTimestampedKokoro, resetTimestampedKokoroSession, synthesizeTimesta
 import { generateWorker, loadKokoroWorker, resetWorker } from './lib/kokoro-worker.ts'
 import { type VoiceMixEntry, blendVoiceBins, fetchVoiceBin, formatMixFormula } from './lib/voice-mix.ts'
 import { type ClipRecord, clearLibrary, deleteClip, enforceLibraryCap, getClipBlob, listClips, saveClip } from './lib/library.ts'
+import { buildM4bFromBlobs, m4bSupported } from './lib/m4b.ts'
 import { type QueueJob, deleteJob, getChunkBlob, jobProgress, listJobs, saveChunkBlob, saveJob } from './lib/queue.ts'
 import { parseEpub } from './lib/epub.ts'
 import { SUPERTONIC_DEFAULT_STEPS, SUPERTONIC_SAMPLE_RATE, SUPERTONIC_VOICES, type SupertonicVoiceId, clampSupertonicSpeed, loadSupertonic, synthesizeSupertonic } from './lib/supertonic.ts'
@@ -371,6 +372,7 @@ function App() {
   const [storageEstimate, setStorageEstimate] = useState<string | null>(null)
   const [queueJobs, setQueueJobs] = useState<QueueJob[]>([])
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
+  const [m4bExportingJobId, setM4bExportingJobId] = useState<string | null>(null)
   const persistRequestedRef = useRef(false)
   const previewCacheRef = useRef<Map<string, string>>(new Map())
   const bgmInputRef = useRef<HTMLInputElement | null>(null)
@@ -1222,13 +1224,70 @@ function App() {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
+  async function downloadJobM4b(jobId: string) {
+    const job = queueJobs.find((j) => j.id === jobId)
+    if (!job || m4bExportingJobId) return
+    if (job.chunks.some((chunk) => chunk.status !== 'done')) {
+      showToast({ tone: 'warn', message: 'Finish every queue chunk before exporting M4B.' })
+      return
+    }
+    if (!m4bSupported()) {
+      showToast({ tone: 'warn', message: 'M4B export requires Chromium or another browser with WebCodecs AAC.' })
+      return
+    }
+
+    setM4bExportingJobId(jobId)
+    setStatus('Building M4B audiobook...')
+    setProgress(1)
+    try {
+      const chunks = []
+      for (const chunk of job.chunks) {
+        const blob = await getChunkBlob(jobId, chunk.index)
+        if (!blob) throw new Error(`Missing audio for chunk ${chunk.index + 1}. Resume the job, then export again.`)
+        chunks.push({
+          blob,
+          text: chunk.text,
+          chapterTitle: chunk.chapterTitle,
+          chapterIndex: chunk.chapterIndex,
+        })
+      }
+
+      const { blob, chapterCount } = await buildM4bFromBlobs({
+        title: job.title,
+        chunks,
+        bitrate: Math.max(64, Math.min(192, job.bitrate)) * 1000,
+        onProgress(info) {
+          const phaseBase = info.phase === 'decode' ? 5 : info.phase === 'encode' ? 35 : 90
+          const phaseSpan = info.phase === 'decode' ? 30 : info.phase === 'encode' ? 55 : 10
+          const pct = info.total > 0 ? phaseBase + Math.round((info.done / info.total) * phaseSpan) : phaseBase
+          setProgress(Math.min(99, pct))
+          setStatus(info.phase === 'decode' ? 'Decoding queue audio...' : info.phase === 'encode' ? 'Encoding AAC...' : 'Writing M4B chapters...')
+        },
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${slugify(job.title)}.m4b`
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+      setProgress(100)
+      showToast({ tone: 'ok', message: `M4B ready with ${chapterCount} chapters.` })
+    } catch (err) {
+      showToast({ tone: 'error', message: err instanceof Error ? err.message : 'M4B export failed.' })
+    } finally {
+      setM4bExportingJobId(null)
+      setProgress(null)
+      setStatus('Ready')
+    }
+  }
+
   async function handleEpubImport(file: File) {
     try {
       setStatus('Parsing EPUB…')
       const chapters = await parseEpub(file)
-      const allChunks = chapters.flatMap((ch) => {
+      const allChunks = chapters.flatMap((ch, chapterIndex) => {
         const cleaned = cleanupText(ch.text, cleanup)
-        return splitInput(cleaned, false).map((text) => ({ title: ch.title, text }))
+        return splitInput(cleaned, false).map((text) => ({ title: ch.title, chapterIndex, text }))
       })
       if (allChunks.length === 0) {
         showToast({ tone: 'warn', message: 'No readable text found in this EPUB.' })
@@ -1245,6 +1304,8 @@ function App() {
         chunks: allChunks.map((c, i) => ({
           index: i,
           text: c.text.slice(0, MAX_TEXT_CHARS),
+          chapterTitle: c.title,
+          chapterIndex: c.chapterIndex,
           status: 'pending' as const,
         })),
       }
@@ -1468,6 +1529,12 @@ function App() {
                             <button type="button" onClick={() => downloadJobZip(job.id)}>
                               <Download size={16} aria-hidden="true" />
                               ZIP
+                            </button>
+                          ) : null}
+                          {done === total && total > 0 ? (
+                            <button type="button" onClick={() => downloadJobM4b(job.id)} disabled={m4bExportingJobId !== null}>
+                              {m4bExportingJobId === job.id ? <Loader2 size={16} aria-hidden="true" /> : <Download size={16} aria-hidden="true" />}
+                              M4B
                             </button>
                           ) : null}
                           {!isActive ? (

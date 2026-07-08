@@ -7,6 +7,8 @@ export type QueueChunk = {
   index: number
   text: string
   status: ChunkStatus
+  chapterTitle?: string
+  chapterIndex?: number
   blobKey?: string
   error?: string
 }
