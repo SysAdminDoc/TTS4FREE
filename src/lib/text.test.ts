@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatBytes, parsePauseTags, slugify, splitInput, splitIntoSentences } from './text.ts'
+import { formatBytes, parseDialogLines, parsePauseTags, slugify, splitInput, splitIntoSentences } from './text.ts'
 
 describe('slugify', () => {
   it('lowercases and replaces non-alphanumeric chars', () => {
@@ -115,6 +115,34 @@ describe('splitIntoSentences', () => {
   it('handles empty input', () => {
     expect(splitIntoSentences('')).toEqual([])
     expect(splitIntoSentences('   ')).toEqual([])
+  })
+})
+
+describe('parseDialogLines', () => {
+  it('parses [speaker:Name] prefixes', () => {
+    const result = parseDialogLines('[speaker:Alice] Hello.\n[speaker:Bob] Hi there.')
+    expect(result).toEqual([
+      { speaker: 'Alice', text: 'Hello.' },
+      { speaker: 'Bob', text: 'Hi there.' },
+    ])
+  })
+
+  it('handles lines without speaker prefix', () => {
+    const result = parseDialogLines('No prefix here.\n[speaker:Bob] With prefix.')
+    expect(result).toEqual([
+      { speaker: null, text: 'No prefix here.' },
+      { speaker: 'Bob', text: 'With prefix.' },
+    ])
+  })
+
+  it('skips empty lines', () => {
+    const result = parseDialogLines('[speaker:A] Line 1\n\n[speaker:B] Line 2')
+    expect(result.length).toBe(2)
+  })
+
+  it('is case insensitive on the speaker tag', () => {
+    const result = parseDialogLines('[Speaker:Eve] Test')
+    expect(result[0].speaker).toBe('Eve')
   })
 })
 

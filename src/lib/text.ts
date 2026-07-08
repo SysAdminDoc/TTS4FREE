@@ -60,6 +60,26 @@ export function slugify(value: string): string {
   return slug || 'tts4free-audio'
 }
 
+export type DialogLine = {
+  speaker: string | null
+  text: string
+}
+
+const SPEAKER_PREFIX = /^\[speaker:\s*([^\]]+)\]\s*/i
+
+export function parseDialogLines(text: string): DialogLine[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(SPEAKER_PREFIX)
+      if (match) return { speaker: match[1].trim(), text: line.slice(match[0].length).trim() }
+      return { speaker: null, text: line }
+    })
+    .filter((d) => d.text.length > 0)
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} kB`

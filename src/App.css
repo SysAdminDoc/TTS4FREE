@@ -468,6 +468,34 @@ select {
   gap: 4px;
 }
 
+.speaker-map {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.speaker-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: center;
+}
+
+.speaker-row span {
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.speaker-row select {
+  margin-bottom: 0;
+  height: 36px;
+}
+
 .progress-wrap {
   height: 8px;
   margin-bottom: 14px;

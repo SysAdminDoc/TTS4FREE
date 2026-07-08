@@ -20,7 +20,7 @@ import {
 import { Component, type ChangeEvent, type ErrorInfo, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { KOKORO_SAMPLE_RATE, type RawAudioLike, loadKokoro, probeWebGpu, resetKokoroSession } from './lib/kokoro.ts'
-import { PAUSE_TAG, formatBytes, parsePauseTags, slugify, splitInput, splitIntoSentences } from './lib/text.ts'
+import { PAUSE_TAG, formatBytes, parseDialogLines, parsePauseTags, slugify, splitInput, splitIntoSentences } from './lib/text.ts'
 import { VOICES } from './lib/voices.ts'
 import { type Cue, toSRT, toVTT } from './lib/subtitles.ts'
 import { concatFloat32Arrays, encodeWav } from './lib/wav.ts'
@@ -139,6 +139,8 @@ function App() {
   const [voiceId, setVoiceId] = useState('af_heart')
   const [speed, setSpeed] = useState(1)
   const [separateLines, setSeparateLines] = useState(false)
+  const [dialogMode, setDialogMode] = useState(false)
+  const [speakerMap, setSpeakerMap] = useState<Record<string, string>>({})
   const [text, setText] = useState(STARTER_TEXT)
   const [results, setResults] = useState<AudioResult[]>([])
   const [zipUrl, setZipUrl] = useState<string | null>(null)
@@ -384,11 +386,98 @@ function App() {
     })
   }
 
-  async function handleGenerate() {
-    const chunks = splitInput(usableText, separateLines)
+  async function generateDialog() {
+    const lines = parseDialogLines(usableText)
+    if (lines.length === 0) return
 
-    if (chunks.length === 0) {
+    setStatus('Loading Kokoro model')
+    setProgress(3)
+    const tts = await loadKokoro(() => {})
+    if (abortRef.current) return
+
+    const generated: AudioResult[] = []
+    const zipFiles: Record<string, Blob> = {}
+    let clearedPrevious = false
+    const unmapped = new Set<string>()
+
+    for (let i = 0; i < lines.length; i++) {
+      if (abortRef.current) break
+      const { speaker, text: lineText } = lines[i]
+      const mappedVoiceId = speaker ? (speakerMap[speaker] || null) : null
+      const voiceForLine = (mappedVoiceId ?? selectedVoice.id) as typeof selectedVoice.id
+      if (speaker && !mappedVoiceId) unmapped.add(speaker)
+
+      const segments = parsePauseTags(lineText)
+      const audioParts: Float32Array[] = []
+      const cues: Cue[] = []
+      let sampleOffset = 0
+      let cueIndex = 1
+
+      for (const seg of segments) {
+        if (abortRef.current) break
+        if (seg.type === 'pause') {
+          const silence = new Float32Array(Math.round(seg.duration * KOKORO_SAMPLE_RATE))
+          audioParts.push(silence)
+          sampleOffset += silence.length
+          continue
+        }
+        for (const sentence of splitIntoSentences(seg.content)) {
+          if (abortRef.current) break
+          const audio = (await tts.generate(sentence, { voice: voiceForLine, speed })) as RawAudioLike
+          if (audio.audio) {
+            audioParts.push(audio.audio)
+            const startSec = sampleOffset / KOKORO_SAMPLE_RATE
+            sampleOffset += audio.audio.length
+            cues.push({ index: cueIndex++, startSec, endSec: sampleOffset / KOKORO_SAMPLE_RATE, text: sentence })
+          }
+        }
+      }
+
+      if (abortRef.current && audioParts.length === 0) break
+      if (!clearedPrevious) { clearOutputs(); clearedPrevious = true }
+
+      const combined = concatFloat32Arrays(audioParts)
+      const blob = new Blob([encodeWav(combined, KOKORO_SAMPLE_RATE)], { type: 'audio/wav' })
+      const prefix = speaker ? slugify(speaker) : String(i + 1).padStart(3, '0')
+      const filename = `${prefix}-${slugify(lineText)}-${timestamp()}.wav`
+      const result = await buildResult(blob, `${speaker ? `[${speaker}] ` : ''}${lineText.slice(0, 50)}`, filename)
+      result.cues = cues
+
+      generated.push(result)
+      zipFiles[filename] = blob
+      setResults([...generated])
+      setProgress(5 + Math.round(((i + 1) / lines.length) * 85))
+      setStatus(`Generated ${i + 1} / ${lines.length}`)
+    }
+
+    if (generated.length > 1) {
+      const { default: JSZip } = await import('jszip')
+      const zip = new JSZip()
+      for (const [fn, b] of Object.entries(zipFiles)) zip.file(fn, b)
+      const zipBlob = await zip.generateAsync({ type: 'blob' })
+      setZipUrl(rememberUrl(URL.createObjectURL(zipBlob)))
+      setZipName(`tts4free-dialog-${timestamp()}.zip`)
+    }
+
+    setProgress(100)
+    if (generated.length > 0) setModelCached(true)
+    if (unmapped.size > 0) {
+      showToast({ tone: 'warn', message: `Unmapped speakers used default voice: ${[...unmapped].join(', ')}` })
+    } else {
+      showToast({ tone: 'ok', message: 'Dialog generated.' })
+    }
+    setStatus('Dialog ready')
+  }
+
+  async function handleGenerate() {
+    const chunks = dialogMode ? [] : splitInput(usableText, separateLines)
+
+    if (!dialogMode && chunks.length === 0) {
       showToast({ tone: 'warn', message: 'Enter text before generating audio.' })
+      return
+    }
+    if (dialogMode && parseDialogLines(usableText).length === 0) {
+      showToast({ tone: 'warn', message: 'Enter text with [speaker:Name] prefixes.' })
       return
     }
 
@@ -405,7 +494,9 @@ function App() {
     setIsGenerating(true)
 
     try {
-      if (engine === 'kokoro') {
+      if (dialogMode && engine === 'kokoro') {
+        await generateDialog()
+      } else if (engine === 'kokoro') {
         await generateKokoro(chunks)
       } else {
         await generateBrowser(chunks)
@@ -772,6 +863,37 @@ function App() {
                 <small>Generate one audio file per non-empty line.</small>
               </span>
             </label>
+
+            {engine === 'kokoro' ? (
+              <label className="toggle-row">
+                <input type="checkbox" checked={dialogMode} onChange={(event) => setDialogMode(event.target.checked)} />
+                <span>
+                  Dialog mode
+                  <small>Map [speaker:Name] prefixes to voices.</small>
+                </span>
+              </label>
+            ) : null}
+
+            {dialogMode && engine === 'kokoro' ? (
+              <div className="speaker-map">
+                {[...new Set(parseDialogLines(usableText).map((d) => d.speaker).filter(Boolean))].map((name) => (
+                  <div className="speaker-row" key={name}>
+                    <span>{name}</span>
+                    <select
+                      value={speakerMap[name!] ?? ''}
+                      onChange={(e) => setSpeakerMap((prev) => ({ ...prev, [name!]: e.target.value }))}
+                    >
+                      <option value="">Default ({selectedVoice.name})</option>
+                      {VOICES.map((v) => (
+                        <option value={v.id} key={v.id}>
+                          {v.name} ({v.gender})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
             {progress !== null ? (
               <div
