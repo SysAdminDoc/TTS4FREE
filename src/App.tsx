@@ -560,12 +560,16 @@ function App() {
     }
 
     if (generated.length > 1) {
-      const { default: JSZip } = await import('jszip')
-      const zip = new JSZip()
+      const { zip } = await import('fflate')
+      const entries: Record<string, Uint8Array> = {}
       for (const [filename, blob] of Object.entries(zipFiles)) {
-        zip.file(filename, blob)
+        entries[filename] = new Uint8Array(await blob.arrayBuffer())
       }
-      const zipBlob = await zip.generateAsync({ type: 'blob' })
+      // level 0: WAV/MP3 payloads don't deflate; storing keeps exports instant.
+      const zipped = await new Promise<Uint8Array>((resolve, reject) => {
+        zip(entries, { level: 0 }, (err, data) => (err ? reject(err) : resolve(data)))
+      })
+      const zipBlob = new Blob([zipped as Uint8Array<ArrayBuffer>], { type: 'application/zip' })
       setZipUrl(rememberUrl(URL.createObjectURL(zipBlob)))
       setZipName(`${opts.zipPrefix}-${timestamp()}.zip`)
     }
