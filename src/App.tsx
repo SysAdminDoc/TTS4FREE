@@ -350,6 +350,8 @@ function App() {
   const [showPronunciations, setShowPronunciations] = useState(false)
   const [newWord, setNewWord] = useState('')
   const [newPronunciation, setNewPronunciation] = useState('')
+  const [importUrlValue, setImportUrlValue] = useState('')
+  const [importingUrl, setImportingUrl] = useState(false)
   const [library, setLibrary] = useState<ClipRecord[]>([])
   const [storageEstimate, setStorageEstimate] = useState<string | null>(null)
   const persistRequestedRef = useRef(false)
@@ -953,6 +955,58 @@ function App() {
     }
   }
 
+  async function importFromUrl(rawUrl: string) {
+    const url = rawUrl.trim()
+    if (!url || importingUrl) return
+    setImportingUrl(true)
+    setStatus('Fetching article…')
+    try {
+      const target = /^https?:\/\//i.test(url) ? url : `https://${url}`
+      const res = await fetch(target, { mode: 'cors' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const html = await res.text()
+      const doc = new DOMParser().parseFromString(html, 'text/html')
+      const { Readability } = await import('@mozilla/readability')
+      const article = new Readability(doc).parse()
+      const textContent = (article?.textContent ?? '').replace(/\n{3,}/g, '\n\n').trim()
+      if (!textContent) throw new Error('No readable text found')
+      const truncated = textContent.length > MAX_TEXT_CHARS
+      setText(textContent.slice(0, MAX_TEXT_CHARS))
+      setImportUrlValue('')
+      showToast(
+        truncated
+          ? { tone: 'warn', message: `Imported "${article?.title ?? 'article'}" — trimmed to ${MAX_TEXT_CHARS} characters.` }
+          : { tone: 'ok', message: `Imported "${article?.title ?? 'article'}".` },
+      )
+    } catch {
+      showToast({
+        tone: 'warn',
+        message: 'Could not read that page — most sites block cross-origin reads. Paste the article text instead.',
+      })
+    } finally {
+      setImportingUrl(false)
+      setStatus('Ready')
+    }
+  }
+
+  useEffect(() => {
+    // PWA share target: Android shares land here as ?url= / ?text= params.
+    const params = new URLSearchParams(window.location.search)
+    const explicitUrl = params.get('url')
+    const sharedText = params.get('text')
+    const urlFromText = sharedText?.match(/https?:\/\/\S+/)?.[0] ?? null
+    const sharedUrl = explicitUrl || urlFromText
+    if (sharedUrl) {
+      importFromUrl(sharedUrl)
+    } else if (sharedText) {
+      setText(sharedText.slice(0, MAX_TEXT_CHARS))
+    }
+    if (sharedUrl || sharedText) {
+      window.history.replaceState(null, '', window.location.pathname)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   function handleFileUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0]
     event.currentTarget.value = ''
@@ -1061,6 +1115,26 @@ function App() {
                 <FileText size={16} aria-hidden="true" />
                 Insert pause
               </button>
+              <div className="url-import">
+                <input
+                  type="url"
+                  value={importUrlValue}
+                  onChange={(e) => setImportUrlValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') importFromUrl(importUrlValue)
+                  }}
+                  placeholder="Paste article URL…"
+                  aria-label="Article URL to import"
+                />
+                <button
+                  type="button"
+                  onClick={() => importFromUrl(importUrlValue)}
+                  disabled={importingUrl || !importUrlValue.trim()}
+                >
+                  {importingUrl ? <Loader2 size={16} aria-hidden="true" /> : <ExternalLink size={16} aria-hidden="true" />}
+                  Fetch
+                </button>
+              </div>
             </div>
 
             <section className="output-panel" aria-label="Generated audio">

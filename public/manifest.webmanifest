@@ -5,6 +5,15 @@
   "id": "/BetterTTS/",
   "scope": "/BetterTTS/",
   "start_url": "./",
+  "share_target": {
+    "action": "./",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
   "display": "standalone",
   "theme_color": "#05080d",
   "background_color": "#05080d",
