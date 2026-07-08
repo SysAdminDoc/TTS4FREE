@@ -158,6 +158,7 @@ function App() {
   const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([])
   const [browserVoiceUri, setBrowserVoiceUri] = useState('')
   const [previewingVoice, setPreviewingVoice] = useState<string | null>(null)
+  const [genStats, setGenStats] = useState<{ elapsed: number; chars: number; audioDuration: number } | null>(null)
   const previewCacheRef = useRef<Map<string, string>>(new Map())
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const objectUrlsRef = useRef<string[]>([])
@@ -275,6 +276,9 @@ function App() {
     if (abortRef.current) return
 
     setStatus('Generating local audio')
+    const genStart = performance.now()
+    let totalSamples = 0
+    let totalChars = 0
     const generated: AudioResult[] = []
     const zipFiles: Record<string, Blob> = {}
     let clearedPrevious = false
@@ -316,6 +320,8 @@ function App() {
           const samples = audio.audio
           if (samples) {
             audioParts.push(samples)
+            totalSamples += samples.length
+            totalChars += sentence.length
             const startSec = sampleOffset / KOKORO_SAMPLE_RATE
             sampleOffset += samples.length
             cues.push({ index: cueIndex++, startSec, endSec: sampleOffset / KOKORO_SAMPLE_RATE, text: sentence })
@@ -359,6 +365,9 @@ function App() {
 
     setProgress(100)
     if (generated.length > 0) setModelCached(true)
+    const elapsed = (performance.now() - genStart) / 1000
+    const audioDuration = totalSamples / KOKORO_SAMPLE_RATE
+    setGenStats({ elapsed, chars: totalChars, audioDuration })
     if (abortRef.current) {
       setStatus(generated.length > 0 ? 'Cancelled — partial output kept' : 'Cancelled')
       showToast({ tone: 'warn', message: 'Generation cancelled.' })
@@ -491,6 +500,7 @@ function App() {
     if (isSpeaking && 'speechSynthesis' in window) window.speechSynthesis.cancel()
     setIsSpeaking(false)
     abortRef.current = false
+    setGenStats(null)
     setIsGenerating(true)
 
     try {
@@ -905,6 +915,15 @@ function App() {
                 aria-label="Generation progress"
               >
                 <span style={{ width: `${progress}%` }} />
+              </div>
+            ) : null}
+
+            {genStats && !isGenerating ? (
+              <div className="gen-stats">
+                <span>{genStats.elapsed.toFixed(1)}s elapsed</span>
+                <span>{Math.round(genStats.chars / genStats.elapsed)} chars/s</span>
+                <span>{genStats.audioDuration.toFixed(1)}s audio</span>
+                <span>{(genStats.audioDuration / genStats.elapsed).toFixed(1)}x realtime</span>
               </div>
             ) : null}
 
