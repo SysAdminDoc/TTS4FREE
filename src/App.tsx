@@ -62,6 +62,8 @@ type ProgressInfo = {
   status?: string
   file?: string
   progress?: number
+  loaded?: number
+  total?: number
 }
 
 type KokoroModule = typeof import('kokoro-js')
@@ -437,6 +439,7 @@ function App() {
   const [runtimeLabel, setRuntimeLabel] = useState(
     typeof navigator !== 'undefined' && 'gpu' in navigator ? 'WebGPU fp32' : 'WebAssembly q8',
   )
+  const [modelCached, setModelCached] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const objectUrlsRef = useRef<string[]>([])
   const toastTimerRef = useRef<ReturnType<typeof setTimeout>>(null)
@@ -456,6 +459,15 @@ function App() {
 
   useEffect(() => {
     probeWebGpu().then((hasGpu) => setRuntimeLabel(hasGpu ? 'WebGPU fp32' : 'WebAssembly q8'))
+    if (typeof caches !== 'undefined') {
+      caches
+        .open('transformers-cache')
+        .then((c) => c.keys())
+        .then((keys) => {
+          if (keys.some((k) => k.url.includes('Kokoro'))) setModelCached(true)
+        })
+        .catch(() => {})
+    }
   }, [])
 
   useEffect(() => {
@@ -514,10 +526,22 @@ function App() {
     setStatus('Loading Kokoro model')
     setProgress(3)
 
+    const fileTotals = new Map<string, { loaded: number; total: number }>()
     const tts = await loadKokoro((info) => {
-      if (info.status === 'progress' && typeof info.progress === 'number') {
-        setStatus(`Loading ${info.file ?? 'model'}`)
-        setProgress(Math.min(35, Math.max(3, Math.round(info.progress * 0.35))))
+      if (info.status === 'progress' && info.file && typeof info.loaded === 'number' && typeof info.total === 'number') {
+        fileTotals.set(info.file, { loaded: info.loaded, total: info.total })
+        let sumLoaded = 0
+        let sumTotal = 0
+        for (const v of fileTotals.values()) {
+          sumLoaded += v.loaded
+          sumTotal += v.total
+        }
+        const pct = sumTotal > 0 ? sumLoaded / sumTotal : 0
+        setStatus(`Downloading ${formatBytes(sumLoaded)} / ${formatBytes(sumTotal)}`)
+        setProgress(Math.min(35, Math.max(3, Math.round(pct * 35))))
+      } else if (info.status === 'ready') {
+        setStatus('Model ready')
+        setProgress(35)
       }
     })
 
@@ -595,6 +619,7 @@ function App() {
     }
 
     setProgress(100)
+    if (generated.length > 0) setModelCached(true)
     if (abortRef.current) {
       setStatus(generated.length > 0 ? 'Cancelled — partial output kept' : 'Cancelled')
       showToast({ tone: 'warn', message: 'Generation cancelled.' })
@@ -857,7 +882,9 @@ function App() {
                 >
                   <span>{engine === 'kokoro' ? <Check size={17} aria-hidden="true" /> : null}</span>
                   <strong>Kokoro local</strong>
-                  <small>{runtimeLabel}. WAV export enabled.</small>
+                  <small>
+                    {runtimeLabel}. WAV export.{modelCached ? ' Model cached.' : ''}
+                  </small>
                 </button>
                 <button
                   type="button"
