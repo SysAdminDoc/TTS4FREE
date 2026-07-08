@@ -26,6 +26,7 @@ import './App.css'
 import { type AudioFormat, encodeAudio, formatExtension, mixBgm, shiftPitch } from './lib/encode.ts'
 import { KOKORO_SAMPLE_RATE, type ProgressInfo, type RawAudioLike, loadKokoro, probeWebGpu, resetKokoroSession } from './lib/kokoro.ts'
 import { generateWorker, loadKokoroWorker, resetWorker } from './lib/kokoro-worker.ts'
+import { type VoiceMixEntry, blendVoiceBins, fetchVoiceBin, formatMixFormula } from './lib/voice-mix.ts'
 import { type ClipRecord, clearLibrary, deleteClip, enforceLibraryCap, getClipBlob, listClips, saveClip } from './lib/library.ts'
 import { type CleanupOptions, DEFAULT_CLEANUP, PAUSE_TAG, cleanupText, formatBytes, parseDialogLines, parsePauseTags, slugify, splitInput, splitIntoSentences } from './lib/text.ts'
 import { VOICES } from './lib/voices.ts'
@@ -348,6 +349,11 @@ function App() {
   const [genStats, setGenStats] = useState<{ elapsed: number; chars: number; audioDuration: number } | null>(null)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [showPronunciations, setShowPronunciations] = useState(false)
+  const [voiceMixEnabled, setVoiceMixEnabled] = useState(false)
+  const [voiceMixEntries, setVoiceMixEntries] = useState<VoiceMixEntry[]>([
+    { voiceId: 'af_heart', weight: 2 },
+    { voiceId: 'af_bella', weight: 1 },
+  ])
   const [newWord, setNewWord] = useState('')
   const [newPronunciation, setNewPronunciation] = useState('')
   const [importUrlValue, setImportUrlValue] = useState('')
@@ -530,10 +536,11 @@ function App() {
     voice: string
     label: string
     filenamePrefix: string
+    voiceBin?: Float32Array
   }
 
   type LoadedEngine = {
-    synthesize: (text: string, voice: string, speed: number) => Promise<Float32Array | null>
+    synthesize: (text: string, voice: string, speed: number, voiceBin?: Float32Array) => Promise<Float32Array | null>
   }
 
   async function ensureEngine(onProgress: (info: ProgressInfo) => void): Promise<LoadedEngine> {
@@ -543,13 +550,11 @@ function App() {
         await loadKokoroWorker(hasGpu ? 'webgpu' : 'wasm', hasGpu ? 'fp32' : 'q8', onProgress)
         setRuntimeLabel(hasGpu ? 'WebGPU fp32' : 'WebAssembly q8')
       } catch (err) {
-        // Adapter probes can pass while session init fails (e.g. fp32 buffer
-        // limits); mirror the inline path's automatic WASM fallback.
         if (!hasGpu) throw err
         await loadKokoroWorker('wasm', 'q8', onProgress)
         setRuntimeLabel('WebAssembly q8')
       }
-      return { synthesize: (text, voice, spd) => generateWorker(text, voice, spd) }
+      return { synthesize: (text, voice, spd, bin) => generateWorker(text, voice, spd, bin) }
     }
     const tts = await loadKokoro(onProgress)
     return {
@@ -639,7 +644,7 @@ function App() {
         }
         for (const sentence of seg.sentences) {
           if (abortRef.current) break
-          const samples = await synthesize(applyPronunciations(sentence), job.voice, speed)
+          const samples = await synthesize(applyPronunciations(sentence), job.voice, speed, job.voiceBin)
           if (samples) {
             audioParts.push(samples)
             totalSamples += samples.length
@@ -760,11 +765,24 @@ function App() {
   }
 
   async function generateKokoro(chunks: string[]) {
+    let mixBin: Float32Array | undefined
+    if (voiceMixEnabled && voiceMixEntries.length >= 2) {
+      setStatus('Loading voice blend…')
+      const bins = await Promise.all(
+        voiceMixEntries.map(async (e) => ({
+          data: await fetchVoiceBin(e.voiceId),
+          weight: e.weight,
+        })),
+      )
+      mixBin = blendVoiceBins(bins)
+    }
+
     const jobs: SynthJob[] = chunks.map((chunk, index) => ({
       text: chunk,
       voice: selectedVoice.id,
       label: chunk.slice(0, 64),
       filenamePrefix: chunks.length === 1 ? slugify(chunk) : `${String(index + 1).padStart(3, '0')}-${slugify(chunk)}`,
+      voiceBin: mixBin,
     }))
     await runSynthesis(jobs, { zipPrefix: 'bettertts' })
   }
@@ -1518,6 +1536,83 @@ function App() {
                         </select>
                       </div>
                     ))}
+                  </div>
+                ) : null}
+
+                {engine === 'kokoro' ? (
+                  <label className="toggle-row">
+                    <input
+                      type="checkbox"
+                      checked={voiceMixEnabled}
+                      onChange={(event) => setVoiceMixEnabled(event.target.checked)}
+                    />
+                    <span>
+                      Voice blend
+                      <small>Mix two or more voices with adjustable weights.</small>
+                    </span>
+                  </label>
+                ) : null}
+
+                {voiceMixEnabled && engine === 'kokoro' ? (
+                  <div className="speaker-map">
+                    {voiceMixEntries.map((entry, idx) => (
+                      <div className="speaker-row" key={idx}>
+                        <select
+                          value={entry.voiceId}
+                          onChange={(e) =>
+                            setVoiceMixEntries((prev) =>
+                              prev.map((ent, i) => (i === idx ? { ...ent, voiceId: e.target.value as typeof ent.voiceId } : ent)),
+                            )
+                          }
+                          aria-label={`Mix voice ${idx + 1}`}
+                        >
+                          {VOICES.map((v) => (
+                            <option value={v.id} key={v.id}>
+                              {v.name} ({v.gender})
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          min={0.1}
+                          max={10}
+                          step={0.1}
+                          value={entry.weight}
+                          onChange={(e) =>
+                            setVoiceMixEntries((prev) =>
+                              prev.map((ent, i) =>
+                                i === idx ? { ...ent, weight: Math.max(0.1, Number(e.target.value) || 1) } : ent,
+                              ),
+                            )
+                          }
+                          aria-label={`Weight for voice ${idx + 1}`}
+                          style={{ width: 56, textAlign: 'center' }}
+                        />
+                        {voiceMixEntries.length > 2 ? (
+                          <button
+                            type="button"
+                            className="heading-action"
+                            onClick={() => setVoiceMixEntries((prev) => prev.filter((_, i) => i !== idx))}
+                          >
+                            <X size={12} aria-hidden="true" />
+                          </button>
+                        ) : null}
+                      </div>
+                    ))}
+                    {voiceMixEntries.length < 4 ? (
+                      <button
+                        type="button"
+                        className="heading-action"
+                        onClick={() =>
+                          setVoiceMixEntries((prev) => [...prev, { voiceId: 'af_nova', weight: 1 }])
+                        }
+                      >
+                        Add voice
+                      </button>
+                    ) : null}
+                    <small style={{ color: 'var(--muted)', fontSize: 12 }}>
+                      {formatMixFormula(voiceMixEntries)}
+                    </small>
                   </div>
                 ) : null}
 

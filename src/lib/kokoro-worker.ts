@@ -72,12 +72,17 @@ export function loadKokoroWorker(
   return loadPromise
 }
 
-export function generateWorker(text: string, voice: string, speed: number): Promise<Float32Array> {
+export function generateWorker(text: string, voice: string, speed: number, voiceBin?: Float32Array): Promise<Float32Array> {
   const w = getWorker()
   const id = nextId++
   return new Promise<Float32Array>((resolve, reject) => {
     pending.set(id, { resolve, reject })
-    w.postMessage({ type: 'generate', text, voice, speed, id } satisfies WorkerRequest)
+    // Clone voice bin for transfer — the caller may reuse the original across
+    // multiple chunks in one generation run.
+    const binCopy = voiceBin ? new Float32Array(voiceBin) : undefined
+    const msg: WorkerRequest = { type: 'generate', text, voice, speed, id, voiceBin: binCopy }
+    const transfer = binCopy ? [binCopy.buffer as ArrayBuffer] : []
+    w.postMessage(msg, { transfer })
   })
 }
 
