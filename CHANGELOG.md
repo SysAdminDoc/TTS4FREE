@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.3.0 - 2026-07-08
+
+### Features
+- Per-voice preview button with session-cached audio (TF-16).
+- Browser-voice picker for Web Speech engine — all system voices selectable (TF-18).
+- SRT/VTT subtitle export from sentence-level timing data (TF-23).
+- Dialog mode with `[speaker:Name]` line prefixes mapped to voices via settings panel (TF-21).
+
+### Tests
+- 39 test assertions across 3 suites (wav, text, subtitles).
+
 ## v0.2.0 - 2026-07-08
 
 ### Correctness
