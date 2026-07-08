@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bettertts-shell-v1'
+const CACHE_NAME = 'bettertts-shell-__BUILD_ID__'
 
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting())
@@ -35,7 +35,11 @@ self.addEventListener('fetch', (event) => {
         })
 
         if (url.origin === self.location.origin && response.type === 'basic') {
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, enhanced.clone()))
+          const copy = enhanced.clone()
+          caches
+            .open(CACHE_NAME)
+            .then((cache) => cache.put(event.request, copy))
+            .catch(() => {})
         }
 
         return enhanced

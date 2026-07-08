@@ -265,6 +265,14 @@ function App() {
   }, [])
 
   useEffect(() => {
+    const onUpdateReady = () =>
+      showToast({ tone: 'ok', message: 'A new version is ready — refresh the page to update.' })
+    window.addEventListener('bettertts-update-ready', onUpdateReady)
+    return () => window.removeEventListener('bettertts-update-ready', onUpdateReady)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
     if (!('speechSynthesis' in window)) return
     const load = () => setBrowserVoices(window.speechSynthesis.getVoices())
     load()
