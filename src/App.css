@@ -302,6 +302,23 @@ button:disabled {
   background: color-mix(in srgb, var(--success) 20%, var(--surface-1));
 }
 
+.library-row {
+  grid-template-columns: 1fr auto;
+}
+
+.heading-action {
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-1);
+  color: var(--muted);
+  font: 600 11px/1 var(--sans);
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .privacy-note {
   display: flex;
   align-items: center;

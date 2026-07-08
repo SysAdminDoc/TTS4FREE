@@ -20,6 +20,7 @@ import {
 import { Component, type ChangeEvent, type ErrorInfo, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { KOKORO_SAMPLE_RATE, type RawAudioLike, loadKokoro, probeWebGpu, resetKokoroSession } from './lib/kokoro.ts'
+import { type ClipRecord, clearLibrary, deleteClip, getClipBlob, listClips, saveClip } from './lib/library.ts'
 import { PAUSE_TAG, formatBytes, parseDialogLines, parsePauseTags, slugify, splitInput, splitIntoSentences } from './lib/text.ts'
 import { VOICES } from './lib/voices.ts'
 import { type Cue, toSRT, toVTT } from './lib/subtitles.ts'
@@ -159,6 +160,7 @@ function App() {
   const [browserVoiceUri, setBrowserVoiceUri] = useState('')
   const [previewingVoice, setPreviewingVoice] = useState<string | null>(null)
   const [genStats, setGenStats] = useState<{ elapsed: number; chars: number; audioDuration: number } | null>(null)
+  const [library, setLibrary] = useState<ClipRecord[]>([])
   const previewCacheRef = useRef<Map<string, string>>(new Map())
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const objectUrlsRef = useRef<string[]>([])
@@ -195,6 +197,10 @@ function App() {
       setVoiceId(availableVoices[0]?.id ?? 'af_heart')
     }
   }, [availableVoices, voiceId])
+
+  useEffect(() => {
+    listClips().then(setLibrary).catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (!('speechSynthesis' in window)) return
@@ -350,6 +356,10 @@ function App() {
       generated.push(result)
       zipFiles[filename] = blob
       setResults([...generated])
+      saveClip(
+        { id: result.id, filename, label: result.label, voice: selectedVoice.id, speed, createdAt: Date.now(), size: blob.size, duration: result.duration },
+        blob,
+      ).catch(() => {})
     }
 
     if (generated.length > 1) {
@@ -365,6 +375,7 @@ function App() {
 
     setProgress(100)
     if (generated.length > 0) setModelCached(true)
+    listClips().then(setLibrary).catch(() => {})
     const elapsed = (performance.now() - genStart) / 1000
     const audioDuration = totalSamples / KOKORO_SAMPLE_RATE
     setGenStats({ elapsed, chars: totalChars, audioDuration })
@@ -750,6 +761,64 @@ function App() {
                 Text and generated audio stay in this browser. Kokoro downloads model files from Hugging Face the first time.
               </p>
             </section>
+
+            {library.length > 0 ? (
+              <section className="output-panel" aria-label="Clip library">
+                <div className="section-heading">
+                  <span>Library ({library.length})</span>
+                  <button
+                    type="button"
+                    className="heading-action"
+                    onClick={() => {
+                      clearLibrary().then(() => setLibrary([])).catch(() => {})
+                    }}
+                  >
+                    Clear all
+                  </button>
+                </div>
+                <div className="result-list">
+                  {library.map((clip) => (
+                    <div className="result-row library-row" key={clip.id}>
+                      <div className="result-meta">
+                        <span className="ready-dot" aria-hidden="true" />
+                        <strong>{clip.label}</strong>
+                        <span>{clip.duration}</span>
+                        <span>{formatBytes(clip.size)}</span>
+                      </div>
+                      <div className="result-actions">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const blob = await getClipBlob(clip.id)
+                            if (blob) {
+                              const url = URL.createObjectURL(blob)
+                              const a = document.createElement('a')
+                              a.href = url
+                              a.download = clip.filename
+                              a.click()
+                              URL.revokeObjectURL(url)
+                            }
+                          }}
+                        >
+                          <Download size={16} aria-hidden="true" />
+                          Download
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            deleteClip(clip.id)
+                              .then(() => setLibrary((prev) => prev.filter((c) => c.id !== clip.id)))
+                              .catch(() => {})
+                          }}
+                        >
+                          <Trash2 size={16} aria-hidden="true" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
           </div>
 
           <aside className="settings-panel" aria-label="Voice settings">
