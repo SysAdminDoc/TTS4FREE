@@ -141,6 +141,7 @@ function App() {
   const [voiceId, setVoiceId] = useState('af_heart')
   const [speed, setSpeed] = useState(1)
   const [separateLines, setSeparateLines] = useState(false)
+  const [streamPlay, setStreamPlay] = useState(true)
   const [dialogMode, setDialogMode] = useState(false)
   const [speakerMap, setSpeakerMap] = useState<Record<string, string>>({})
   const [text, setText] = useState(STARTER_TEXT)
@@ -306,6 +307,13 @@ function App() {
     const zipFiles: Record<string, Blob> = {}
     let clearedPrevious = false
 
+    let audioCtx: AudioContext | null = null
+    let nextPlayTime = 0
+    if (streamPlay) {
+      audioCtx = new AudioContext({ sampleRate: KOKORO_SAMPLE_RATE })
+      nextPlayTime = audioCtx.currentTime + 0.05
+    }
+
     const chunkPlans = chunks.map((chunk) => {
       const segments = parsePauseTags(chunk)
       return segments.map((seg) =>
@@ -348,6 +356,15 @@ function App() {
             const startSec = sampleOffset / KOKORO_SAMPLE_RATE
             sampleOffset += samples.length
             cues.push({ index: cueIndex++, startSec, endSec: sampleOffset / KOKORO_SAMPLE_RATE, text: sentence })
+            if (audioCtx) {
+              const buf = audioCtx.createBuffer(1, samples.length, KOKORO_SAMPLE_RATE)
+              buf.getChannelData(0).set(samples)
+              const src = audioCtx.createBufferSource()
+              src.buffer = buf
+              src.connect(audioCtx.destination)
+              src.start(nextPlayTime)
+              nextPlayTime = Math.max(nextPlayTime, audioCtx.currentTime) + buf.duration
+            }
           }
           done++
           setProgress(35 + Math.round((done / totalSentences) * 55))
@@ -1005,6 +1022,16 @@ function App() {
                 <small>Generate one audio file per non-empty line.</small>
               </span>
             </label>
+
+            {engine === 'kokoro' ? (
+              <label className="toggle-row">
+                <input type="checkbox" checked={streamPlay} onChange={(event) => setStreamPlay(event.target.checked)} />
+                <span>
+                  Stream playback
+                  <small>Play audio as each sentence is generated.</small>
+                </span>
+              </label>
+            ) : null}
 
             {engine === 'kokoro' ? (
               <label className="toggle-row">
