@@ -36,6 +36,11 @@
 .brand-mark {
   display: inline-flex;
   color: var(--accent);
+  transition: transform 200ms ease;
+}
+
+.brand:hover .brand-mark {
+  transform: scale(1.08);
 }
 
 .nav-links {
@@ -151,6 +156,7 @@ footer button {
     linear-gradient(90deg, color-mix(in srgb, var(--accent) 4%, transparent), transparent 24rem),
     var(--editor-bg);
   overflow: hidden;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
 .line-numbers {
@@ -337,8 +343,8 @@ button:disabled {
 }
 
 .heading-action {
-  min-height: 24px;
-  padding: 0 8px;
+  min-height: 28px;
+  padding: 0 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface-1);
@@ -347,6 +353,12 @@ button:disabled {
   cursor: pointer;
   text-transform: none;
   letter-spacing: 0;
+  transition: border-color 160ms ease, color 160ms ease;
+}
+
+.heading-action:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+  color: var(--heading);
 }
 
 .privacy-note {
@@ -486,11 +498,13 @@ select:focus-visible {
   background: var(--surface-1);
   color: var(--muted);
   cursor: pointer;
+  transition: border-color 160ms ease, color 160ms ease, background 160ms ease;
 }
 
 .voice-preview:hover {
   color: var(--accent);
   border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-1));
 }
 
 .range-row {
@@ -632,28 +646,31 @@ select:focus-visible {
 }
 
 .progress-wrap {
-  height: 8px;
+  height: 6px;
   margin-bottom: 14px;
   overflow: hidden;
-  border-radius: 4px;
+  border-radius: 3px;
   background: var(--surface-2);
 }
 
 .progress-wrap span {
   display: block;
   height: 100%;
+  border-radius: 3px;
   background: linear-gradient(90deg, var(--accent), var(--accent-2));
-  transition: width 180ms ease;
+  transition: width 220ms ease;
 }
 
 .gen-stats {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px 14px;
-  margin-bottom: 10px;
+  gap: 4px 12px;
+  margin-bottom: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--surface-2);
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
+  font: 500 12px/1.4 var(--mono);
 }
 
 .generate-button {
