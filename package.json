@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",
+    "@huggingface/transformers": "^3.8.1",
     "@mozilla/readability": "^0.6.0",
     "fflate": "^0.8.3",
     "kokoro-js": "^1.2.1",

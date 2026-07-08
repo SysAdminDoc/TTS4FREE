@@ -30,6 +30,7 @@ import { type VoiceMixEntry, blendVoiceBins, fetchVoiceBin, formatMixFormula } f
 import { type ClipRecord, clearLibrary, deleteClip, enforceLibraryCap, getClipBlob, listClips, saveClip } from './lib/library.ts'
 import { type QueueJob, deleteJob, getChunkBlob, jobProgress, listJobs, saveChunkBlob, saveJob } from './lib/queue.ts'
 import { parseEpub } from './lib/epub.ts'
+import { SUPERTONIC_DEFAULT_STEPS, SUPERTONIC_SAMPLE_RATE, SUPERTONIC_VOICES, type SupertonicVoiceId, clampSupertonicSpeed, loadSupertonic, synthesizeSupertonic } from './lib/supertonic.ts'
 import { type CleanupOptions, DEFAULT_CLEANUP, PAUSE_TAG, cleanupText, formatBytes, parseDialogLines, parsePauseTags, slugify, splitInput, splitIntoSentences } from './lib/text.ts'
 import { VOICES } from './lib/voices.ts'
 import { type Cue, toSRT, toVTT } from './lib/subtitles.ts'
@@ -39,7 +40,7 @@ import { speakBrowser } from './lib/webspeech.ts'
 const APP_VERSION = '0.10.0'
 const MAX_TEXT_CHARS = 5000
 
-type Engine = 'kokoro' | 'browser'
+type Engine = 'kokoro' | 'supertonic' | 'browser'
 type Theme = 'dark' | 'light'
 
 type AudioResult = {
@@ -70,6 +71,7 @@ Download as WAV or MP3 when you're done.`
 
 const MODEL_ROWS = [
   ['Kokoro 82M', 'Kokoro local', '82M', 'English US / GB', 'Ready'],
+  ['Supertonic', 'Transformers.js', '66M', 'English speed engine', 'Ready'],
   ['Kokoro multilingual', 'Planned local pack', '137M+', 'JP / ZH / ES / FR / HI / IT / PT', 'Next'],
   ['Browser voices', 'Web Speech', 'Native', 'Device voices', 'Fallback'],
   ['Piper packs', 'Static model packs', 'Varies', 'Optional', 'Later'],
@@ -301,6 +303,8 @@ function App() {
   const [engine, setEngine] = useState<Engine>('kokoro')
   const [locale, setLocale] = useState<'en-us' | 'en-gb'>('en-us')
   const [voiceId, setVoiceId] = useState('af_heart')
+  const [supertonicVoiceId, setSupertonicVoiceId] = useState<SupertonicVoiceId>('F1')
+  const [supertonicSteps, setSupertonicSteps] = useState(SUPERTONIC_DEFAULT_STEPS)
   const [speed, setSpeed] = useState(1)
   const [separateLines, setSeparateLines] = useState(false)
   const [streamPlay, setStreamPlay] = useState(true)
@@ -376,6 +380,8 @@ function App() {
 
   const availableVoices = useMemo(() => VOICES.filter((voice) => voice.locale === locale), [locale])
   const selectedVoice = VOICES.find((voice) => voice.id === voiceId) ?? VOICES[0]
+  const selectedSupertonicVoice = SUPERTONIC_VOICES.find((voice) => voice.id === supertonicVoiceId) ?? SUPERTONIC_VOICES[0]
+  const kokoroRuntimeLabel = runtimeLabel.startsWith('Supertonic') ? (forceWasm ? 'WebAssembly q8' : 'WebGPU fp32 / WebAssembly q8') : runtimeLabel
   const lineNumbers = useMemo(() => text.split(/\r?\n/).map((_, index) => index + 1), [text])
   const usableText = text.slice(0, MAX_TEXT_CHARS)
   const overLimit = text.length > MAX_TEXT_CHARS
@@ -402,12 +408,16 @@ function App() {
   }, [forceWasm])
 
   useEffect(() => {
+    if (engine === 'supertonic') setSpeed((current) => clampSupertonicSpeed(current))
+  }, [engine])
+
+  useEffect(() => {
     if (typeof caches !== 'undefined') {
       caches
         .open('transformers-cache')
         .then((c) => c.keys())
         .then((keys) => {
-          if (keys.some((k) => k.url.includes('Kokoro'))) setModelCached(true)
+          if (keys.some((k) => k.url.includes('Kokoro') || k.url.includes('Supertonic'))) setModelCached(true)
         })
         .catch(() => {})
     }
@@ -551,11 +561,16 @@ function App() {
     voiceBin?: Float32Array
   }
 
-  type LoadedEngine = {
-    synthesize: (text: string, voice: string, speed: number, voiceBin?: Float32Array) => Promise<Float32Array | null>
+  type SynthesizedAudio = {
+    samples: Float32Array
+    sampleRate: number
   }
 
-  async function ensureEngine(onProgress: (info: ProgressInfo) => void): Promise<LoadedEngine> {
+  type LoadedEngine = {
+    synthesize: (text: string, voice: string, speed: number, voiceBin?: Float32Array) => Promise<SynthesizedAudio | null>
+  }
+
+  async function ensureKokoroEngine(onProgress: (info: ProgressInfo) => void): Promise<LoadedEngine> {
     const hasGpu = !forceWasm && (await probeWebGpu())
     if (useWorker) {
       try {
@@ -566,19 +581,33 @@ function App() {
         await loadKokoroWorker('wasm', 'q8', onProgress)
         setRuntimeLabel('WebAssembly q8')
       }
-      return { synthesize: (text, voice, spd, bin) => generateWorker(text, voice, spd, bin) }
+      return {
+        synthesize: async (text, voice, spd, bin) => ({
+          samples: await generateWorker(text, voice, spd, bin),
+          sampleRate: KOKORO_SAMPLE_RATE,
+        }),
+      }
     }
     const tts = await loadKokoro(onProgress)
     return {
       synthesize: async (text, voice, spd) => {
         const audio = (await tts.generate(text, { voice: voice as never, speed: spd })) as RawAudioLike
-        return audio.audio ?? null
+        return audio.audio ? { samples: audio.audio, sampleRate: KOKORO_SAMPLE_RATE } : null
       },
     }
   }
 
+  async function ensureEngine(onProgress: (info: ProgressInfo) => void): Promise<LoadedEngine> {
+    if (engine === 'supertonic') {
+      const tts = await loadSupertonic(onProgress)
+      setRuntimeLabel('Supertonic fp32')
+      return { synthesize: (text, voice, spd) => synthesizeSupertonic(tts, text, voice as SupertonicVoiceId, spd, supertonicSteps) }
+    }
+    return ensureKokoroEngine(onProgress)
+  }
+
   async function runSynthesis(jobs: SynthJob[], opts: { zipPrefix: string; successMessage?: string }) {
-    setStatus('Loading Kokoro model')
+    setStatus(engine === 'supertonic' ? 'Loading Supertonic model' : 'Loading Kokoro model')
     setProgress(3)
 
     const fileTotals = new Map<string, { loaded: number; total: number }>()
@@ -611,6 +640,7 @@ function App() {
     setStatus('Generating local audio')
     const genStart = performance.now()
     let totalSamples = 0
+    const outputSampleRate = engine === 'supertonic' ? SUPERTONIC_SAMPLE_RATE : KOKORO_SAMPLE_RATE
     let totalChars = 0
     const generated: AudioResult[] = []
     const zipFiles: Record<string, Blob> = {}
@@ -621,7 +651,7 @@ function App() {
     let audioCtx: AudioContext | null = null
     let nextPlayTime = 0
     if (streamPlay) {
-      audioCtx = new AudioContext({ sampleRate: KOKORO_SAMPLE_RATE })
+      audioCtx = new AudioContext({ sampleRate: outputSampleRate })
       nextPlayTime = audioCtx.currentTime + 0.05
     }
 
@@ -649,24 +679,26 @@ function App() {
       for (const seg of plan) {
         if (abortRef.current) break
         if (seg.type === 'pause') {
-          const silence = new Float32Array(Math.round(seg.duration * KOKORO_SAMPLE_RATE))
+          const silence = new Float32Array(Math.round(seg.duration * outputSampleRate))
           audioParts.push(silence)
+          totalSamples += silence.length
           sampleOffset += silence.length
           continue
         }
         for (const sentence of seg.sentences) {
           if (abortRef.current) break
-          const samples = await synthesize(applyPronunciations(sentence), job.voice, speed, job.voiceBin)
-          if (samples) {
-            audioParts.push(samples)
-            totalSamples += samples.length
+          const audio = await synthesize(applyPronunciations(sentence), job.voice, speed, job.voiceBin)
+          if (audio) {
+            if (audio.sampleRate !== outputSampleRate) throw new Error('Generated chunks used mixed sample rates.')
+            audioParts.push(audio.samples)
+            totalSamples += audio.samples.length
             totalChars += sentence.length
-            const startSec = sampleOffset / KOKORO_SAMPLE_RATE
-            sampleOffset += samples.length
-            cues.push({ index: cueIndex++, startSec, endSec: sampleOffset / KOKORO_SAMPLE_RATE, text: sentence })
+            const startSec = sampleOffset / outputSampleRate
+            sampleOffset += audio.samples.length
+            cues.push({ index: cueIndex++, startSec, endSec: sampleOffset / outputSampleRate, text: sentence })
             if (audioCtx) {
-              const buf = audioCtx.createBuffer(1, samples.length, KOKORO_SAMPLE_RATE)
-              buf.getChannelData(0).set(samples)
+              const buf = audioCtx.createBuffer(1, audio.samples.length, outputSampleRate)
+              buf.getChannelData(0).set(audio.samples)
               const src = audioCtx.createBufferSource()
               src.buffer = buf
               src.connect(audioCtx.destination)
@@ -690,9 +722,9 @@ function App() {
       }
 
       const raw = concatFloat32Arrays(audioParts)
-      let processed = pitchSemitones !== 0 ? await shiftPitch(raw, pitchSemitones, KOKORO_SAMPLE_RATE) : raw
-      if (bgmFile) {
-        const { mixed, bgmEmpty } = await mixBgm(processed, bgmFile, bgmVolume, KOKORO_SAMPLE_RATE)
+      let processed = engine === 'kokoro' && pitchSemitones !== 0 ? await shiftPitch(raw, pitchSemitones, outputSampleRate) : raw
+      if (engine === 'kokoro' && bgmFile) {
+        const { mixed, bgmEmpty } = await mixBgm(processed, bgmFile, bgmVolume, outputSampleRate)
         processed = mixed
         if (bgmEmpty && !warnedBgmEmpty) {
           warnedBgmEmpty = true
@@ -700,7 +732,7 @@ function App() {
         }
       }
       const ext = formatExtension(audioFormat)
-      const blob = await encodeAudio(processed, KOKORO_SAMPLE_RATE, audioFormat, mp3Bitrate)
+      const blob = await encodeAudio(processed, outputSampleRate, audioFormat, mp3Bitrate)
       const filename = `${job.filenamePrefix}-${timestamp()}${ext}`
       const result = await buildResult(blob, job.label, filename)
       if (cues.length > 0) {
@@ -765,7 +797,7 @@ function App() {
     listClips().then(setLibrary).catch(() => {})
     refreshStorageEstimate()
     const elapsed = (performance.now() - genStart) / 1000
-    const audioDuration = totalSamples / KOKORO_SAMPLE_RATE
+    const audioDuration = totalSamples / outputSampleRate
     setGenStats({ elapsed, chars: totalChars, audioDuration })
     if (abortRef.current) {
       setStatus(generated.length > 0 ? 'Cancelled — partial output kept' : 'Cancelled')
@@ -797,6 +829,16 @@ function App() {
       voiceBin: mixBin,
     }))
     await runSynthesis(jobs, { zipPrefix: 'bettertts' })
+  }
+
+  async function generateSupertonic(chunks: string[]) {
+    const jobs: SynthJob[] = chunks.map((chunk, index) => ({
+      text: chunk,
+      voice: supertonicVoiceId,
+      label: `${selectedSupertonicVoice.name}: ${chunk.slice(0, 56)}`,
+      filenamePrefix: chunks.length === 1 ? slugify(chunk) : `${String(index + 1).padStart(3, '0')}-${slugify(chunk)}`,
+    }))
+    await runSynthesis(jobs, { zipPrefix: 'bettertts-supertonic', successMessage: 'Supertonic audio generated locally.' })
   }
 
   async function generateBrowser(chunks: string[]) {
@@ -879,6 +921,8 @@ function App() {
         await generateDialog(sourceText)
       } else if (engine === 'kokoro') {
         await generateKokoro(chunks)
+      } else if (engine === 'supertonic') {
+        await generateSupertonic(chunks)
       } else {
         await generateBrowser(chunks)
       }
@@ -910,13 +954,13 @@ function App() {
         return
       }
       const engineImpl = await ensureEngine(() => {})
-      const samples = await engineImpl.synthesize('This is how I sound.', id, 1)
-      if (samples) {
-        const blob = new Blob([encodeWav(samples, KOKORO_SAMPLE_RATE)], { type: 'audio/wav' })
+      const preview = await engineImpl.synthesize('This is how I sound.', id, 1)
+      if (preview) {
+        const blob = new Blob([encodeWav(preview.samples, preview.sampleRate)], { type: 'audio/wav' })
         const url = URL.createObjectURL(blob)
         previewCacheRef.current.set(id, url)
-        const audio = new Audio(url)
-        await audio.play()
+        const player = new Audio(url)
+        await player.play()
         setModelCached(true)
       }
     } catch {
@@ -1073,7 +1117,7 @@ function App() {
       const onProgress = (info: { status?: string; file?: string; loaded?: number; total?: number }) => {
         if (info.status === 'ready') setStatus('Model ready')
       }
-      const { synthesize } = await ensureEngine(onProgress)
+      const { synthesize } = await ensureKokoroEngine(onProgress)
 
       for (const chunk of job.chunks) {
         if (abortRef.current) break
@@ -1087,8 +1131,8 @@ function App() {
           const parts: Float32Array[] = []
           for (const sentence of sentences) {
             if (abortRef.current) break
-            const samples = await synthesize(sentence, job.voice, job.speed)
-            if (samples) parts.push(samples)
+            const audio = await synthesize(sentence, job.voice, job.speed)
+            if (audio) parts.push(audio.samples)
           }
           if (parts.length > 0) {
             const raw = concatFloat32Arrays(parts)
@@ -1362,7 +1406,7 @@ function App() {
               )}
               <p className="privacy-note">
                 <Info size={16} aria-hidden="true" />
-                100% private — your text and audio never leave this browser. Model files are downloaded once and cached locally.
+                100% private — your text and audio never leave this browser. Model files are cached locally after first use.
               </p>
             </section>
 
@@ -1498,9 +1542,18 @@ function App() {
                   <span>{engine === 'kokoro' ? <Check size={17} aria-hidden="true" /> : null}</span>
                   <strong>Kokoro local</strong>
                   <small>
-                    {runtimeLabel}. WAV export.{runtimeLabel === 'WebAssembly q8' ? ' Pages-hosted model.' : ' HF model.'}{modelCached ? ' Model cached.' : ''}
+                    {kokoroRuntimeLabel}. WAV export.{kokoroRuntimeLabel === 'WebAssembly q8' ? ' Pages-hosted model.' : ' HF model.'}{modelCached ? ' Model cached.' : ''}
                     {storageEstimate ? ` ${storageEstimate}.` : ''}
                   </small>
+                </button>
+                <button
+                  type="button"
+                  className={engine === 'supertonic' ? 'engine-card selected' : 'engine-card'}
+                  onClick={() => setEngine('supertonic')}
+                >
+                  <span>{engine === 'supertonic' ? <Check size={17} aria-hidden="true" /> : null}</span>
+                  <strong>Supertonic</strong>
+                  <small>English speed engine. 44.1 kHz fp32, lazy-loaded from HF.</small>
                 </button>
                 <button
                   type="button"
@@ -1562,6 +1615,23 @@ function App() {
                   ))}
                 </div>
               </>
+            ) : engine === 'supertonic' ? (
+              <>
+                <label className="control-label" htmlFor="supertonic-voice">
+                  Voice
+                </label>
+                <select
+                  id="supertonic-voice"
+                  value={supertonicVoiceId}
+                  onChange={(event) => setSupertonicVoiceId(event.target.value as SupertonicVoiceId)}
+                >
+                  {SUPERTONIC_VOICES.map((voice) => (
+                    <option value={voice.id} key={voice.id}>
+                      {voice.name} ({voice.gender})
+                    </option>
+                  ))}
+                </select>
+              </>
             ) : (
               <>
                 <label className="control-label" htmlFor="browser-voice">
@@ -1588,8 +1658,8 @@ function App() {
               <input
                 id="speed"
                 type="range"
-                min="0.5"
-                max="1.5"
+                min={engine === 'supertonic' ? '0.8' : '0.5'}
+                max={engine === 'supertonic' ? '1.2' : '1.5'}
                 step="0.05"
                 value={speed}
                 onChange={(event) => setSpeed(Number(event.target.value))}
@@ -1625,7 +1695,23 @@ function App() {
                   </div>
                 ) : null}
 
-                {engine === 'kokoro' ? (
+                {engine === 'supertonic' ? (
+                  <div className="range-row">
+                    <label htmlFor="supertonic-steps">Steps</label>
+                    <span>{supertonicSteps}</span>
+                    <input
+                      id="supertonic-steps"
+                      type="range"
+                      min="1"
+                      max="10"
+                      step="1"
+                      value={supertonicSteps}
+                      onChange={(event) => setSupertonicSteps(Number(event.target.value))}
+                    />
+                  </div>
+                ) : null}
+
+                {engine !== 'browser' ? (
                   <div className="format-row">
                     <label className="control-label" htmlFor="format">Format</label>
                     <select id="format" value={audioFormat} onChange={(e) => setAudioFormat(e.target.value as AudioFormat)}>
@@ -1637,7 +1723,7 @@ function App() {
                       <select value={mp3Bitrate} onChange={(e) => setMp3Bitrate(Number(e.target.value))} aria-label="MP3 bitrate">
                         <option value={96}>96 kbps</option>
                         <option value={128}>128 kbps</option>
-                        <option value={160}>160 kbps (max at 24 kHz)</option>
+                        <option value={160}>{engine === 'kokoro' ? '160 kbps (max at 24 kHz)' : '160 kbps'}</option>
                       </select>
                     ) : null}
                   </div>
@@ -1972,7 +2058,7 @@ function App() {
         <section className="technical-note" id="docs">
           <span>How it works</span>
           <p>
-            Kokoro 82M runs locally in your browser via Transformers.js. WASM q8 loads from this site first, then falls back to Hugging Face with rate-limit backoff; WebGPU fp32 remains HF-hosted. No server involved.
+            Kokoro 82M and Supertonic run locally in your browser via Transformers.js. Kokoro WASM q8 loads from this site first; Supertonic and Kokoro WebGPU fp32 remain HF-hosted. No server involved.
           </p>
           <a href="https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX" target="_blank" rel="noreferrer">
             Model card <ExternalLink size={15} aria-hidden="true" />

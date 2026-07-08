@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/platform-GitHub%20Pages-24292f.svg)](https://sysadmindoc.github.io/BetterTTS/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178c6.svg)](#)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](#)
-[![Tests](https://img.shields.io/badge/tests-95%20passing-53d889.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-98%20passing-53d889.svg)](#)
 
 **Free client-side text-to-speech studio.** Kokoro 82M runs entirely in your browser — no server, no signup, no usage caps (5,000 characters per run, unlimited runs). Export WAV, MP3, or Opus — keep everything private.
 
@@ -34,6 +34,7 @@ Every cloud TTS service gates you behind signups, character limits, and paid tie
 
 ### Audio Generation
 - **Kokoro 82M** neural TTS via `kokoro-js` + Transformers.js — top-tier voice quality (MOS 4.3-4.5)
+- **Supertonic speed engine** via Transformers.js — 10 English F/M voices, 44.1 kHz fp32 output, lazy-loaded only when selected
 - **28 English voices** — 12 US female, 9 US male, 4 British female, 4 British male, each with quality grades
 - **WebGPU acceleration** with automatic WASM q8 fallback for devices without GPU support
 - **Pages-hosted WASM q8 model** with Hugging Face fallback and 429-aware retry; WebGPU fp32 stays HF-hosted because it exceeds the Pages file cap
@@ -105,12 +106,12 @@ Open `http://localhost:5173/BetterTTS/` in your browser.
 |---|---|
 | Framework | React 19 + TypeScript 6 |
 | Build | Vite 8 |
-| TTS Model | Kokoro 82M via `kokoro-js` 1.2.1 + Transformers.js |
+| TTS Model | Kokoro 82M via `kokoro-js` 1.2.1 + Transformers.js; Supertonic via Transformers.js |
 | MP3 Encoding | `@breezystack/lamejs` (LGPL-2.1, browser LAME) |
 | Pitch Shifting | `signalsmith-stretch` (MIT, AudioWorklet/WASM) |
 | ZIP Packaging | `fflate` |
 | Icons | `lucide-react` |
-| Testing | Vitest (95 assertions across 9 suites) |
+| Testing | Vitest (98 assertions across 10 suites) |
 | Linting | oxlint |
 | Hosting | GitHub Pages (static, no backend) |
 
@@ -126,6 +127,7 @@ src/
 │   ├── kokoro.ts            # Model loader, WebGPU probe, WASM fallback
 │   ├── kokoro-assets.ts     # Pages-hosted q8 asset routing + HF fallback
 │   ├── kokoro-worker.ts     # Web Worker client interface
+│   ├── supertonic.ts        # Supertonic pipeline loader and voice metadata
 │   ├── encode.ts            # WAV/MP3 encoding, pitch shift, BGM mixing
 │   ├── wav.ts               # Raw PCM → WAV encoder
 │   ├── text.ts              # Sentence splitting, pause parsing, slugify
@@ -179,10 +181,12 @@ The deploy script builds `dist/`, syncs the Pages-hosted Kokoro q8 model assets 
 | Parameters | 82 million |
 | ONNX source | `onnx-community/Kokoro-82M-v1.0-ONNX` |
 | Sample rate | 24,000 Hz |
-| WebGPU dtype | fp32 (~326 MB) |
+| WebGPU dtype | fp32 (~326 MB, HF-hosted) |
 | WASM dtype | q8 (~92 MB, Pages-hosted) |
 | Languages | English (US + British) |
 | License | Apache-2.0 |
+
+Supertonic is available as a separate English speed engine: 66M parameters, 10 voices, 44,100 Hz output, HF-hosted fp32 ONNX assets, OpenRAIL license.
 
 ## Roadmap
 
@@ -190,7 +194,7 @@ Planned features (see [ROADMAP.md](ROADMAP.md) for details):
 
 - Multilingual Kokoro pack (es/fr/it/pt/hi)
 - Word-level timestamps and karaoke highlighting
-- Additional engine support (Supertonic, KittenTTS, Piper)
+- Additional engine support (KittenTTS, Piper)
 - Transformers.js v4 migration for WebGPU speedups
 - M4B chaptered audiobook export
 

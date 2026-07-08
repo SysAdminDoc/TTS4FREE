@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- Added Supertonic as a lazy-loaded English fp32 speed engine via Transformers.js, with 10 F/M voices, 44.1 kHz exports, engine-aware speed/step controls, and built-preview browser QA (TF-37 revised).
+
 ### Changed
 - Added same-origin-first Kokoro q8 model and voice asset loading for GitHub Pages, with Hugging Face fallback and 429-aware retry; deploy now syncs the 92 MB q8 ONNX, tokenizer/config, and 28 English voice bins into `dist/models` (TF-68).
 - Replaced the SoundTouch.js pitch-shift path with Signalsmith Stretch AudioWorklet/WASM offline rendering; +/-4 semitone exports keep exact length and a non-zero tail in Chromium browser QA (TF-70).
