@@ -515,7 +515,13 @@ function App() {
     setProgress(5)
     const cleanText = chunks.join('\n\n').replace(PAUSE_TAG, ' ')
     const chosenVoice = browserVoices.find((v) => v.voiceURI === browserVoiceUri)
-    await speakBrowser(cleanText, speed, chosenVoice)
+    await speakBrowser(cleanText, speed, chosenVoice, () => abortRef.current)
+    if (abortRef.current) {
+      setProgress(100)
+      setStatus('Cancelled')
+      showToast({ tone: 'warn', message: 'Browser playback cancelled.' })
+      return
+    }
     const markerBlob = new Blob([cleanText], { type: 'text/plain' })
     const result = await buildResult(markerBlob, 'Browser speech playback', 'browser-playback.txt', cleanText)
 

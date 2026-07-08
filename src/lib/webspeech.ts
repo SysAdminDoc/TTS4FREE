@@ -18,7 +18,12 @@ function getBrowserVoices(): Promise<SpeechSynthesisVoice[]> {
   })
 }
 
-export async function speakBrowser(text: string, speed: number, chosenVoice?: SpeechSynthesisVoice) {
+export async function speakBrowser(
+  text: string,
+  speed: number,
+  chosenVoice?: SpeechSynthesisVoice,
+  shouldAbort?: () => boolean,
+) {
   if (!('speechSynthesis' in window)) {
     throw new Error('This browser does not expose speech synthesis.')
   }
@@ -31,27 +36,44 @@ export async function speakBrowser(text: string, speed: number, chosenVoice?: Sp
   const rate = Math.max(0.5, Math.min(1.5, speed))
 
   for (const chunk of chunks) {
+    if (shouldAbort?.()) {
+      synth.cancel()
+      return
+    }
     await new Promise<void>((resolve, reject) => {
       const utt = new SpeechSynthesisUtterance(chunk)
       utt.rate = rate
       utt.voice = voice
-      utt.onend = () => resolve()
+
+      // Scale the stall watchdog with utterance length and rate; a fixed 20s
+      // cancels legitimate long utterances at slow speeds.
+      const watchdogMs = Math.max(10000, Math.round((chunk.length * 120) / rate))
+      const watchdog = setTimeout(() => {
+        synth.cancel()
+        resolve()
+      }, watchdogMs)
+      const abortPoll = shouldAbort
+        ? setInterval(() => {
+            if (shouldAbort()) synth.cancel()
+          }, 250)
+        : null
+      const cleanup = () => {
+        clearTimeout(watchdog)
+        if (abortPoll) clearInterval(abortPoll)
+      }
+
+      utt.onend = () => {
+        cleanup()
+        resolve()
+      }
       utt.onerror = (ev) => {
+        cleanup()
         if (ev.error === 'interrupted' || ev.error === 'canceled') resolve()
         else reject(new Error('Browser speech playback failed.'))
       }
 
-      const watchdog = setTimeout(() => {
-        synth.cancel()
-        resolve()
-      }, 20000)
-      const origEnd = utt.onend
-      utt.onend = (e) => {
-        clearTimeout(watchdog)
-        origEnd?.call(utt, e)
-      }
-
       synth.speak(utt)
     })
+    if (shouldAbort?.()) return
   }
 }
