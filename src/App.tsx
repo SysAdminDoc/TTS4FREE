@@ -26,7 +26,7 @@ import { type AudioFormat, encodeAudio, formatExtension, mixBgm, shiftPitch } fr
 import { KOKORO_SAMPLE_RATE, type ProgressInfo, type RawAudioLike, loadKokoro, probeWebGpu, resetKokoroSession } from './lib/kokoro.ts'
 import { generateWorker, loadKokoroWorker, resetWorker } from './lib/kokoro-worker.ts'
 import { type ClipRecord, clearLibrary, deleteClip, enforceLibraryCap, getClipBlob, listClips, saveClip } from './lib/library.ts'
-import { PAUSE_TAG, formatBytes, parseDialogLines, parsePauseTags, slugify, splitInput, splitIntoSentences } from './lib/text.ts'
+import { type CleanupOptions, DEFAULT_CLEANUP, PAUSE_TAG, cleanupText, formatBytes, parseDialogLines, parsePauseTags, slugify, splitInput, splitIntoSentences } from './lib/text.ts'
 import { VOICES } from './lib/voices.ts'
 import { type Cue, toSRT, toVTT } from './lib/subtitles.ts'
 import { concatFloat32Arrays, encodeWav } from './lib/wav.ts'
@@ -166,6 +166,12 @@ function App() {
       return saved ? JSON.parse(saved) : {}
     } catch { return {} }
   })
+  const [cleanup, setCleanup] = useState<CleanupOptions>(() => {
+    try {
+      const saved = window.localStorage.getItem('bettertts-cleanup')
+      return saved ? { ...DEFAULT_CLEANUP, ...JSON.parse(saved) } : DEFAULT_CLEANUP
+    } catch { return DEFAULT_CLEANUP }
+  })
   const [text, setText] = useState(STARTER_TEXT)
   const [results, setResults] = useState<AudioResult[]>([])
   const [zipUrl, setZipUrl] = useState<string | null>(null)
@@ -221,6 +227,10 @@ function App() {
   useEffect(() => {
     try { window.localStorage.setItem('bettertts-pronunciations', JSON.stringify(pronunciations)) } catch {}
   }, [pronunciations])
+
+  useEffect(() => {
+    try { window.localStorage.setItem('bettertts-cleanup', JSON.stringify(cleanup)) } catch {}
+  }, [cleanup])
 
   useEffect(() => {
     if (forceWasm) {
@@ -632,8 +642,8 @@ function App() {
     })
   }
 
-  async function generateDialog() {
-    const lines = parseDialogLines(usableText)
+  async function generateDialog(sourceText: string) {
+    const lines = parseDialogLines(sourceText)
     if (lines.length === 0) return
 
     const unmapped = new Set<string>()
@@ -657,13 +667,14 @@ function App() {
   async function handleGenerate() {
     if (generatingRef.current) return
     const effectiveDialog = dialogMode && engine === 'kokoro'
-    const chunks = effectiveDialog ? [] : splitInput(usableText, separateLines)
+    const sourceText = cleanupText(usableText, cleanup)
+    const chunks = effectiveDialog ? [] : splitInput(sourceText, separateLines)
 
     if (!effectiveDialog && chunks.length === 0) {
       showToast({ tone: 'warn', message: 'Enter text before generating audio.' })
       return
     }
-    if (effectiveDialog && parseDialogLines(usableText).length === 0) {
+    if (effectiveDialog && parseDialogLines(sourceText).length === 0) {
       showToast({ tone: 'warn', message: 'Enter text with [speaker:Name] prefixes.' })
       return
     }
@@ -684,7 +695,7 @@ function App() {
 
     try {
       if (effectiveDialog) {
-        await generateDialog()
+        await generateDialog(sourceText)
       } else if (engine === 'kokoro') {
         await generateKokoro(chunks)
       } else {
@@ -1237,6 +1248,28 @@ function App() {
                     <small>Generate one audio file per non-empty line.</small>
                   </span>
                 </label>
+
+                <span className="control-label">Text cleanup</span>
+                {(
+                  [
+                    ['citations', 'Skip citations', 'Remove [12]-style reference markers.'],
+                    ['urls', 'Shorten URLs', 'Read web addresses as "link".'],
+                    ['acronyms', 'Spell acronyms', 'Letter-space SQL, HTML, and similar.'],
+                    ['markdown', 'Strip markdown', 'Drop #, *, backticks, and link syntax.'],
+                  ] as const
+                ).map(([key, title, hint]) => (
+                  <label className="toggle-row" key={key}>
+                    <input
+                      type="checkbox"
+                      checked={cleanup[key]}
+                      onChange={(event) => setCleanup((prev) => ({ ...prev, [key]: event.target.checked }))}
+                    />
+                    <span>
+                      {title}
+                      <small>{hint}</small>
+                    </span>
+                  </label>
+                ))}
 
                 {engine === 'kokoro' ? (
                   <>

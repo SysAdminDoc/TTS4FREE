@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatBytes, parseDialogLines, parsePauseTags, slugify, splitInput, splitIntoSentences } from './text.ts'
+import { DEFAULT_CLEANUP, cleanupText, formatBytes, parseDialogLines, parsePauseTags, slugify, splitInput, splitIntoSentences } from './text.ts'
 
 describe('slugify', () => {
   it('lowercases and replaces non-alphanumeric chars', () => {
@@ -176,6 +176,62 @@ describe('parseDialogLines', () => {
   it('is case insensitive on the speaker tag', () => {
     const result = parseDialogLines('[Speaker:Eve] Test')
     expect(result[0].speaker).toBe('Eve')
+  })
+})
+
+describe('cleanupText', () => {
+  const off = { citations: false, urls: false, acronyms: false, markdown: false }
+
+  it('strips numeric citation markers', () => {
+    expect(cleanupText('Speed matters [12] a lot [1, 2] indeed [3-5].', { ...off, citations: true })).toBe(
+      'Speed matters a lot indeed .',
+    )
+  })
+
+  it('does not treat pause or speaker tags as citations', () => {
+    const text = '[speaker:Ann] Hello [pause 2s] world [7]'
+    const result = cleanupText(text, { ...off, citations: true })
+    expect(result).toContain('[speaker:Ann]')
+    expect(result).toContain('[pause 2s]')
+    expect(result).not.toContain('[7]')
+  })
+
+  it('replaces bare URLs with "link"', () => {
+    expect(cleanupText('See https://example.com/a?b=1 and www.foo.org today', { ...off, urls: true })).toBe(
+      'See link and link today',
+    )
+  })
+
+  it('letter-spaces vowel-less acronyms but leaves pronounceable ones', () => {
+    const result = cleanupText('SQL and HTML beat NASA and REST', { ...off, acronyms: true })
+    expect(result).toContain('S Q L')
+    expect(result).toContain('H T M L')
+    expect(result).toContain('NASA')
+    expect(result).toContain('REST')
+  })
+
+  it('strips markdown syntax and keeps link text', () => {
+    const md = '# Title\n\nSome **bold** and `code` plus [a link](https://x.dev) here\n- bullet one'
+    const result = cleanupText(md, { ...off, markdown: true })
+    expect(result).not.toContain('#')
+    expect(result).not.toContain('**')
+    expect(result).not.toContain('`')
+    expect(result).toContain('bold')
+    expect(result).toContain('a link')
+    expect(result).not.toContain('https://x.dev')
+    expect(result).toContain('bullet one')
+  })
+
+  it('markdown links resolve before URL shortening under defaults', () => {
+    const result = cleanupText('Read [the docs](https://docs.dev) or https://raw.dev', DEFAULT_CLEANUP)
+    expect(result).toContain('the docs')
+    expect(result).toContain('link')
+    expect(result).not.toContain('docs.dev')
+  })
+
+  it('is a no-op when every rule is off', () => {
+    const text = 'Keep [12] https://x.dev SQL **bold**'
+    expect(cleanupText(text, off)).toBe(text)
   })
 })
 

@@ -106,6 +106,49 @@ export function parseDialogLines(text: string): DialogLine[] {
     .filter((d) => d.text.length > 0)
 }
 
+export type CleanupOptions = {
+  citations: boolean
+  urls: boolean
+  acronyms: boolean
+  markdown: boolean
+}
+
+export const DEFAULT_CLEANUP: CleanupOptions = {
+  citations: true,
+  urls: true,
+  acronyms: true,
+  markdown: true,
+}
+
+// Pre-synthesis cleanup for pasted technical/web content. Order matters:
+// markdown link syntax must resolve to its text before bare-URL replacement.
+export function cleanupText(input: string, opts: CleanupOptions): string {
+  let out = input
+  if (opts.markdown) {
+    out = out
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/`([^`]*)`/g, '$1')
+      .replace(/^#{1,6}\s+/gm, '')
+      .replace(/(\*\*|__)(.*?)\1/g, '$2')
+      .replace(/(\*|_)(?=\S)(.*?)(?<=\S)\1/g, '$2')
+      .replace(/^\s*[-*+]\s+/gm, '')
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/\[([^\]]+)\]\(([^)]*)\)/g, '$1')
+  }
+  if (opts.urls) {
+    out = out.replace(/\bhttps?:\/\/\S+/gi, 'link').replace(/\bwww\.\S+/gi, 'link')
+  }
+  if (opts.citations) {
+    out = out.replace(/\[\d{1,3}(?:\s*[,–-]\s*\d{1,3})*\]/g, '')
+  }
+  if (opts.acronyms) {
+    // Letter-space vowel-less ALL-CAPS runs (SQL → S Q L) so the phonemizer
+    // spells them; pronounceable acronyms like NASA keep their vowels and pass.
+    out = out.replace(/\b[BCDFGHJKLMNPQRSTVWXZ]{2,6}\b/g, (m) => m.split('').join(' '))
+  }
+  return out.replace(/[ \t]{2,}/g, ' ')
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} kB`
