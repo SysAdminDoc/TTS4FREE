@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.4.0 - 2026-07-08
+
+### Features
+- Generation stats: elapsed time, chars/s throughput, audio duration, realtime factor (TF-27 partial).
+- Persistent clip library backed by IndexedDB — clips survive reloads with re-download and delete controls (TF-17).
+
 ## v0.3.0 - 2026-07-08
 
 ### Features
