@@ -10,7 +10,8 @@
     "build": "npm run clean && npm run typecheck && vite build",
     "test": "vitest run",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy": "node scripts/deploy.mjs"
   },
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",

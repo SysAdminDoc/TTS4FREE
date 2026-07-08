@@ -135,14 +135,13 @@ src/
 
 ## Deploy to GitHub Pages
 
-This project does not use GitHub Actions. Build locally and push the `dist` folder:
+This project does not use GitHub Actions. Build and publish locally:
 
 ```bash
-npm run build
-git subtree push --prefix dist origin gh-pages
+npm run deploy
 ```
 
-Then in repository settings: **Pages** → Source: `gh-pages` branch, folder: `/`.
+The deploy script builds `dist/` and force-pushes it to the `gh-pages` branch from a disposable git worktree, so your working tree is never modified. Then in repository settings: **Pages** → Source: `gh-pages` branch, folder: `/`.
 
 ## Voice Catalog
 
