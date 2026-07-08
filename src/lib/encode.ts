@@ -36,3 +36,53 @@ export function formatExtension(format: AudioFormat): string {
 export function formatMime(format: AudioFormat): string {
   return format === 'mp3' ? 'audio/mpeg' : 'audio/wav'
 }
+
+export async function shiftPitch(samples: Float32Array, semitones: number): Promise<Float32Array> {
+  if (semitones === 0) return samples
+  const { SoundTouch, SimpleFilter } = await import('soundtouchjs')
+
+  const st = new SoundTouch()
+  st.pitchSemitones = semitones
+
+  const interleaved = new Float32Array(samples.length * 2)
+  for (let i = 0; i < samples.length; i++) {
+    interleaved[i * 2] = samples[i]
+    interleaved[i * 2 + 1] = samples[i]
+  }
+
+  const source = {
+    extract(target: Float32Array, numFrames: number, position: number): number {
+      const start = position * 2
+      const end = Math.min(start + numFrames * 2, interleaved.length)
+      const available = Math.floor((end - start) / 2)
+      if (available <= 0) return 0
+      target.set(interleaved.subarray(start, start + available * 2))
+      return available
+    },
+  }
+
+  const filter = new SimpleFilter(source, st)
+  const outChunks: Float32Array[] = []
+  const chunkSize = 4096
+  const buf = new Float32Array(chunkSize * 2)
+
+  let extracted: number
+  do {
+    extracted = filter.extract(buf, chunkSize)
+    if (extracted > 0) {
+      outChunks.push(new Float32Array(buf.subarray(0, extracted * 2)))
+    }
+  } while (extracted > 0)
+
+  let totalLen = 0
+  for (const c of outChunks) totalLen += c.length / 2
+  const mono = new Float32Array(totalLen)
+  let offset = 0
+  for (const c of outChunks) {
+    for (let i = 0; i < c.length; i += 2) {
+      mono[offset++] = c[i]
+    }
+  }
+
+  return mono
+}

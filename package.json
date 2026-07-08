@@ -18,7 +18,8 @@
     "kokoro-js": "^1.2.1",
     "lucide-react": "^1.23.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "soundtouchjs": "^0.3.0"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",

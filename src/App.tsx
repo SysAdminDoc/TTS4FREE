@@ -20,7 +20,7 @@ import {
 } from 'lucide-react'
 import { Component, type ChangeEvent, type ErrorInfo, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
-import { type AudioFormat, encodeAudio, formatExtension } from './lib/encode.ts'
+import { type AudioFormat, encodeAudio, formatExtension, shiftPitch } from './lib/encode.ts'
 import { KOKORO_SAMPLE_RATE, type RawAudioLike, loadKokoro, probeWebGpu, resetKokoroSession } from './lib/kokoro.ts'
 import { generateWorker, loadKokoroWorker, resetWorker } from './lib/kokoro-worker.ts'
 import { type ClipRecord, clearLibrary, deleteClip, getClipBlob, listClips, saveClip } from './lib/library.ts'
@@ -147,6 +147,7 @@ function App() {
   const [audioFormat, setAudioFormat] = useState<AudioFormat>('wav')
   const [mp3Bitrate, setMp3Bitrate] = useState(192)
   const [useWorker, setUseWorker] = useState(true)
+  const [pitchSemitones, setPitchSemitones] = useState(0)
   const [dialogMode, setDialogMode] = useState(false)
   const [speakerMap, setSpeakerMap] = useState<Record<string, string>>({})
   const [pronunciations, setPronunciations] = useState<Record<string, string>>(() => {
@@ -418,7 +419,8 @@ function App() {
         clearedPrevious = true
       }
 
-      const combined = concatFloat32Arrays(audioParts)
+      const raw = concatFloat32Arrays(audioParts)
+      const combined = pitchSemitones !== 0 ? await shiftPitch(raw, pitchSemitones) : raw
       const ext = formatExtension(audioFormat)
       const blob = await encodeAudio(combined, KOKORO_SAMPLE_RATE, audioFormat, mp3Bitrate)
       const baseName =
@@ -544,7 +546,8 @@ function App() {
       if (abortRef.current && audioParts.length === 0) break
       if (!clearedPrevious) { clearOutputs(); clearedPrevious = true }
 
-      const combined = concatFloat32Arrays(audioParts)
+      const raw = concatFloat32Arrays(audioParts)
+      const combined = pitchSemitones !== 0 ? await shiftPitch(raw, pitchSemitones) : raw
       const ext = formatExtension(audioFormat)
       const blob = await encodeAudio(combined, KOKORO_SAMPLE_RATE, audioFormat, mp3Bitrate)
       const prefix = speaker ? slugify(speaker) : String(i + 1).padStart(3, '0')
@@ -1081,6 +1084,22 @@ function App() {
                 onChange={(event) => setSpeed(Number(event.target.value))}
               />
             </div>
+
+            {engine === 'kokoro' ? (
+              <div className="range-row">
+                <label htmlFor="pitch">Pitch</label>
+                <span>{pitchSemitones > 0 ? `+${pitchSemitones}` : pitchSemitones} st</span>
+                <input
+                  id="pitch"
+                  type="range"
+                  min="-4"
+                  max="4"
+                  step="1"
+                  value={pitchSemitones}
+                  onChange={(event) => setPitchSemitones(Number(event.target.value))}
+                />
+              </div>
+            ) : null}
 
             {engine === 'kokoro' ? (
               <div className="format-row">
