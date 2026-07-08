@@ -23,7 +23,7 @@ import {
 import { Component, type ChangeEvent, type ErrorInfo, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { type AudioFormat, encodeAudio, formatExtension, mixBgm, shiftPitch } from './lib/encode.ts'
-import { KOKORO_SAMPLE_RATE, type RawAudioLike, loadKokoro, probeWebGpu, resetKokoroSession } from './lib/kokoro.ts'
+import { KOKORO_SAMPLE_RATE, type ProgressInfo, type RawAudioLike, loadKokoro, probeWebGpu, resetKokoroSession } from './lib/kokoro.ts'
 import { generateWorker, loadKokoroWorker, resetWorker } from './lib/kokoro-worker.ts'
 import { type ClipRecord, clearLibrary, deleteClip, getClipBlob, listClips, saveClip } from './lib/library.ts'
 import { PAUSE_TAG, formatBytes, parseDialogLines, parsePauseTags, slugify, splitInput, splitIntoSentences } from './lib/text.ts'
@@ -176,6 +176,13 @@ function App() {
   const [isGenerating, setIsGenerating] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [pauseDuration, setPauseDuration] = useState(1)
+  const [forceWasm, setForceWasm] = useState(() => {
+    try {
+      return window.localStorage.getItem('bettertts-backend') === 'wasm'
+    } catch {
+      return false
+    }
+  })
   const [runtimeLabel, setRuntimeLabel] = useState(
     typeof navigator !== 'undefined' && 'gpu' in navigator ? 'WebGPU fp32' : 'WebAssembly q8',
   )
@@ -214,7 +221,14 @@ function App() {
   }, [pronunciations])
 
   useEffect(() => {
-    probeWebGpu().then((hasGpu) => setRuntimeLabel(hasGpu ? 'WebGPU fp32' : 'WebAssembly q8'))
+    if (forceWasm) {
+      setRuntimeLabel('WebAssembly q8')
+    } else {
+      probeWebGpu().then((hasGpu) => setRuntimeLabel(hasGpu ? 'WebGPU fp32' : 'WebAssembly q8'))
+    }
+  }, [forceWasm])
+
+  useEffect(() => {
     if (typeof caches !== 'undefined') {
       caches
         .open('transformers-cache')
@@ -335,6 +349,34 @@ function App() {
     filenamePrefix: string
   }
 
+  type LoadedEngine = {
+    synthesize: (text: string, voice: string, speed: number) => Promise<Float32Array | null>
+  }
+
+  async function ensureEngine(onProgress: (info: ProgressInfo) => void): Promise<LoadedEngine> {
+    const hasGpu = !forceWasm && (await probeWebGpu())
+    if (useWorker) {
+      try {
+        await loadKokoroWorker(hasGpu ? 'webgpu' : 'wasm', hasGpu ? 'fp32' : 'q8', onProgress)
+        setRuntimeLabel(hasGpu ? 'WebGPU fp32' : 'WebAssembly q8')
+      } catch (err) {
+        // Adapter probes can pass while session init fails (e.g. fp32 buffer
+        // limits); mirror the inline path's automatic WASM fallback.
+        if (!hasGpu) throw err
+        await loadKokoroWorker('wasm', 'q8', onProgress)
+        setRuntimeLabel('WebAssembly q8')
+      }
+      return { synthesize: (text, voice, spd) => generateWorker(text, voice, spd) }
+    }
+    const tts = await loadKokoro(onProgress)
+    return {
+      synthesize: async (text, voice, spd) => {
+        const audio = (await tts.generate(text, { voice: voice as never, speed: spd })) as RawAudioLike
+        return audio.audio ?? null
+      },
+    }
+  }
+
   async function runSynthesis(jobs: SynthJob[], opts: { zipPrefix: string; successMessage?: string }) {
     setStatus('Loading Kokoro model')
     setProgress(3)
@@ -358,21 +400,7 @@ function App() {
       }
     }
 
-    let ttsInline: Awaited<ReturnType<typeof loadKokoro>> | null = null
-    if (useWorker) {
-      const hasGpu = await probeWebGpu()
-      await loadKokoroWorker(hasGpu ? 'webgpu' : 'wasm', hasGpu ? 'fp32' : 'q8', onProgress)
-    } else {
-      ttsInline = await loadKokoro(onProgress)
-    }
-
-    const synthesize = async (text: string, voice: string, spd: number): Promise<Float32Array | null> => {
-      if (useWorker) {
-        return generateWorker(text, voice, spd)
-      }
-      const audio = (await ttsInline!.generate(text, { voice: voice as never, speed: spd })) as RawAudioLike
-      return audio.audio ?? null
-    }
+    const { synthesize } = await ensureEngine(onProgress)
 
     if (abortRef.current) {
       setStatus('Cancelled')
@@ -646,16 +674,8 @@ function App() {
         setPreviewingVoice(null)
         return
       }
-      let samples: Float32Array | null = null
-      if (useWorker) {
-        const hasGpu = await probeWebGpu()
-        await loadKokoroWorker(hasGpu ? 'webgpu' : 'wasm', hasGpu ? 'fp32' : 'q8', () => {})
-        samples = await generateWorker('This is how I sound.', id, 1)
-      } else {
-        const tts = await loadKokoro(() => {})
-        const result = (await tts.generate('This is how I sound.', { voice: id as typeof selectedVoice.id, speed: 1 })) as RawAudioLike
-        samples = result.audio ?? null
-      }
+      const engineImpl = await ensureEngine(() => {})
+      const samples = await engineImpl.synthesize('This is how I sound.', id, 1)
       if (samples) {
         const blob = new Blob([encodeWav(samples, KOKORO_SAMPLE_RATE)], { type: 'audio/wav' })
         const url = URL.createObjectURL(blob)
@@ -1187,6 +1207,26 @@ function App() {
                       <span>
                         Background worker
                         <small>Run inference off main thread for smoother UI.</small>
+                      </span>
+                    </label>
+                    <label className="toggle-row">
+                      <input
+                        type="checkbox"
+                        checked={forceWasm}
+                        disabled={isGenerating}
+                        onChange={(event) => {
+                          const next = event.target.checked
+                          setForceWasm(next)
+                          try {
+                            window.localStorage.setItem('bettertts-backend', next ? 'wasm' : 'auto')
+                          } catch { /* storage blocked */ }
+                          resetKokoroSession()
+                          resetWorker()
+                        }}
+                      />
+                      <span>
+                        CPU mode (WASM)
+                        <small>Use if audio sounds corrupted or distorted on your GPU.</small>
                       </span>
                     </label>
                   </>
