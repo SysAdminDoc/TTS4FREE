@@ -147,6 +147,12 @@ function App() {
   const [mp3Bitrate, setMp3Bitrate] = useState(192)
   const [dialogMode, setDialogMode] = useState(false)
   const [speakerMap, setSpeakerMap] = useState<Record<string, string>>({})
+  const [pronunciations, setPronunciations] = useState<Record<string, string>>(() => {
+    try {
+      const saved = window.localStorage.getItem('tts4free-pronunciations')
+      return saved ? JSON.parse(saved) : {}
+    } catch { return {} }
+  })
   const [text, setText] = useState(STARTER_TEXT)
   const [results, setResults] = useState<AudioResult[]>([])
   const [zipUrl, setZipUrl] = useState<string | null>(null)
@@ -165,6 +171,9 @@ function App() {
   const [browserVoiceUri, setBrowserVoiceUri] = useState('')
   const [previewingVoice, setPreviewingVoice] = useState<string | null>(null)
   const [genStats, setGenStats] = useState<{ elapsed: number; chars: number; audioDuration: number } | null>(null)
+  const [showPronunciations, setShowPronunciations] = useState(false)
+  const [newWord, setNewWord] = useState('')
+  const [newPronunciation, setNewPronunciation] = useState('')
   const [library, setLibrary] = useState<ClipRecord[]>([])
   const previewCacheRef = useRef<Map<string, string>>(new Map())
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -183,6 +192,10 @@ function App() {
     document.documentElement.dataset.theme = theme
     try { window.localStorage.setItem('tts4free-theme', theme) } catch { /* storage blocked */ }
   }, [theme])
+
+  useEffect(() => {
+    try { window.localStorage.setItem('tts4free-pronunciations', JSON.stringify(pronunciations)) } catch {}
+  }, [pronunciations])
 
   useEffect(() => {
     probeWebGpu().then((hasGpu) => setRuntimeLabel(hasGpu ? 'WebGPU fp32' : 'WebAssembly q8'))
@@ -260,6 +273,15 @@ function App() {
       setToast((current) => (current?.message === nextToast.message ? null : current))
       toastTimerRef.current = null
     }, 5500)
+  }
+
+  function applyPronunciations(input: string): string {
+    let result = input
+    for (const [word, replacement] of Object.entries(pronunciations)) {
+      if (!word) continue
+      result = result.replaceAll(word, replacement)
+    }
+    return result
   }
 
   async function buildResult(blob: Blob, label: string, filename: string, replayText?: string): Promise<AudioResult> {
@@ -347,7 +369,7 @@ function App() {
         }
         for (const sentence of seg.sentences) {
           if (abortRef.current) break
-          const audio = (await tts.generate(sentence, {
+          const audio = (await tts.generate(applyPronunciations(sentence), {
             voice: selectedVoice.id,
             speed,
           })) as RawAudioLike
@@ -481,7 +503,7 @@ function App() {
         }
         for (const sentence of splitIntoSentences(seg.content)) {
           if (abortRef.current) break
-          const audio = (await tts.generate(sentence, { voice: voiceForLine, speed })) as RawAudioLike
+          const audio = (await tts.generate(applyPronunciations(sentence), { voice: voiceForLine, speed })) as RawAudioLike
           if (audio.audio) {
             audioParts.push(audio.audio)
             const startSec = sampleOffset / KOKORO_SAMPLE_RATE
@@ -1088,6 +1110,69 @@ function App() {
                   </div>
                 ))}
               </div>
+            ) : null}
+
+            {engine === 'kokoro' ? (
+              <>
+                <button
+                  type="button"
+                  className="heading-action"
+                  style={{ marginBottom: 10, display: 'block' }}
+                  onClick={() => setShowPronunciations(!showPronunciations)}
+                >
+                  Pronunciations ({Object.keys(pronunciations).length})
+                </button>
+                {showPronunciations ? (
+                  <div className="speaker-map">
+                    {Object.entries(pronunciations).map(([word, pron]) => (
+                      <div className="speaker-row" key={word}>
+                        <span>{word}</span>
+                        <span style={{ color: 'var(--text)' }}>{pron}</span>
+                        <button
+                          type="button"
+                          className="heading-action"
+                          onClick={() => setPronunciations((prev) => {
+                            const next = { ...prev }
+                            delete next[word]
+                            return next
+                          })}
+                        >
+                          <X size={12} aria-hidden="true" />
+                        </button>
+                      </div>
+                    ))}
+                    <div className="speaker-row">
+                      <input
+                        type="text"
+                        placeholder="Word"
+                        value={newWord}
+                        onChange={(e) => setNewWord(e.target.value)}
+                        style={{ height: 32, padding: '0 8px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface-1)', color: 'var(--heading)', font: '13px var(--sans)' }}
+                      />
+                      <input
+                        type="text"
+                        placeholder="Says as"
+                        value={newPronunciation}
+                        onChange={(e) => setNewPronunciation(e.target.value)}
+                        style={{ height: 32, padding: '0 8px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface-1)', color: 'var(--heading)', font: '13px var(--sans)' }}
+                      />
+                      <button
+                        type="button"
+                        className="heading-action"
+                        onClick={() => {
+                          if (newWord.trim() && newPronunciation.trim()) {
+                            setPronunciations((prev) => ({ ...prev, [newWord.trim()]: newPronunciation.trim() }))
+                            setNewWord('')
+                            setNewPronunciation('')
+                          }
+                        }}
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </>
             ) : null}
 
             {progress !== null ? (
