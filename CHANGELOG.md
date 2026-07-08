@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.6.0 - 2026-07-08
+
+### Features
+- Web Worker for off-main-thread Kokoro inference — UI stays responsive during generation (TF-20).
+
 ## v0.5.0 - 2026-07-08
 
 ### Features
