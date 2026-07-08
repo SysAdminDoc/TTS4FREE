@@ -28,6 +28,7 @@ import { KOKORO_SAMPLE_RATE, type ProgressInfo, type RawAudioLike, loadKokoro, p
 import { generateWorker, loadKokoroWorker, resetWorker } from './lib/kokoro-worker.ts'
 import { type VoiceMixEntry, blendVoiceBins, fetchVoiceBin, formatMixFormula } from './lib/voice-mix.ts'
 import { type ClipRecord, clearLibrary, deleteClip, enforceLibraryCap, getClipBlob, listClips, saveClip } from './lib/library.ts'
+import { type QueueJob, deleteJob, getChunkBlob, jobProgress, listJobs, saveChunkBlob, saveJob } from './lib/queue.ts'
 import { type CleanupOptions, DEFAULT_CLEANUP, PAUSE_TAG, cleanupText, formatBytes, parseDialogLines, parsePauseTags, slugify, splitInput, splitIntoSentences } from './lib/text.ts'
 import { VOICES } from './lib/voices.ts'
 import { type Cue, toSRT, toVTT } from './lib/subtitles.ts'
@@ -360,6 +361,8 @@ function App() {
   const [importingUrl, setImportingUrl] = useState(false)
   const [library, setLibrary] = useState<ClipRecord[]>([])
   const [storageEstimate, setStorageEstimate] = useState<string | null>(null)
+  const [queueJobs, setQueueJobs] = useState<QueueJob[]>([])
+  const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const persistRequestedRef = useRef(false)
   const previewCacheRef = useRef<Map<string, string>>(new Map())
   const bgmInputRef = useRef<HTMLInputElement | null>(null)
@@ -428,7 +431,15 @@ function App() {
 
   useEffect(() => {
     listClips().then(setLibrary).catch(() => {})
+    listJobs().then((jobs) => {
+      setQueueJobs(jobs)
+      const incomplete = jobs.find((j) => j.chunks.some((c) => c.status === 'pending'))
+      if (incomplete) {
+        showToast({ tone: 'ok', message: `Resumable job: "${incomplete.title}" (${jobProgress(incomplete).pct}% done). Open the queue panel to resume.` })
+      }
+    }).catch(() => {})
     refreshStorageEstimate()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -1027,6 +1038,121 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  async function queueCurrentText() {
+    if (!usableText.trim()) return
+    const chunks = splitInput(cleanupText(usableText, cleanup), separateLines)
+    if (chunks.length === 0) return
+    const job: QueueJob = {
+      id: crypto.randomUUID(),
+      title: usableText.slice(0, 50).replace(/\s+/g, ' ').trim(),
+      createdAt: Date.now(),
+      voice: selectedVoice.id,
+      speed,
+      format: audioFormat,
+      bitrate: mp3Bitrate,
+      chunks: chunks.map((text, i) => ({ index: i, text, status: 'pending' as const })),
+    }
+    await saveJob(job)
+    setQueueJobs((prev) => [job, ...prev])
+    showToast({ tone: 'ok', message: `Queued "${job.title}" — ${job.chunks.length} chunks.` })
+  }
+
+  async function resumeJob(jobId: string) {
+    if (generatingRef.current) return
+    const jobs = await listJobs()
+    const job = jobs.find((j) => j.id === jobId)
+    if (!job) return
+
+    generatingRef.current = true
+    setIsGenerating(true)
+    setActiveJobId(jobId)
+    abortRef.current = false
+
+    try {
+      const onProgress = (info: { status?: string; file?: string; loaded?: number; total?: number }) => {
+        if (info.status === 'ready') setStatus('Model ready')
+      }
+      const { synthesize } = await ensureEngine(onProgress)
+
+      for (const chunk of job.chunks) {
+        if (abortRef.current) break
+        if (chunk.status === 'done') continue
+        chunk.status = 'generating'
+        await saveJob(job)
+        setQueueJobs((prev) => prev.map((j) => (j.id === jobId ? { ...job } : j)))
+
+        try {
+          const sentences = splitIntoSentences(applyPronunciations(chunk.text))
+          const parts: Float32Array[] = []
+          for (const sentence of sentences) {
+            if (abortRef.current) break
+            const samples = await synthesize(sentence, job.voice, job.speed)
+            if (samples) parts.push(samples)
+          }
+          if (parts.length > 0) {
+            const raw = concatFloat32Arrays(parts)
+            const blob = await encodeAudio(raw, KOKORO_SAMPLE_RATE, job.format, job.bitrate)
+            await saveChunkBlob(jobId, chunk.index, blob)
+            chunk.status = 'done'
+          } else {
+            chunk.status = 'failed'
+            chunk.error = 'No audio produced'
+          }
+        } catch (err) {
+          chunk.status = 'failed'
+          chunk.error = err instanceof Error ? err.message : 'Failed'
+        }
+        await saveJob(job)
+        setQueueJobs((prev) => prev.map((j) => (j.id === jobId ? { ...job } : j)))
+        const { pct } = jobProgress(job)
+        setStatus(`Queue: ${pct}% done`)
+        setProgress(pct)
+      }
+
+      if (abortRef.current) {
+        showToast({ tone: 'warn', message: 'Queue paused — resume anytime.' })
+      } else {
+        showToast({ tone: 'ok', message: `Job "${job.title}" complete.` })
+      }
+    } catch (err) {
+      showToast({ tone: 'error', message: err instanceof Error ? err.message : 'Queue failed' })
+    } finally {
+      generatingRef.current = false
+      setIsGenerating(false)
+      setActiveJobId(null)
+      setProgress(null)
+      setStatus('Ready')
+    }
+  }
+
+  async function downloadJobZip(jobId: string) {
+    const job = queueJobs.find((j) => j.id === jobId)
+    if (!job) return
+    const doneChunks = job.chunks.filter((c) => c.status === 'done')
+    if (doneChunks.length === 0) return
+
+    const { zip } = await import('fflate')
+    const entries: Record<string, Uint8Array> = {}
+    for (const chunk of doneChunks) {
+      const blob = await getChunkBlob(jobId, chunk.index)
+      if (blob) {
+        const ext = formatExtension(job.format)
+        entries[`${String(chunk.index + 1).padStart(3, '0')}-${slugify(chunk.text)}${ext}`] =
+          new Uint8Array(await blob.arrayBuffer())
+      }
+    }
+    const zipped = await new Promise<Uint8Array>((resolve, reject) => {
+      zip(entries, { level: 0 }, (err, data) => (err ? reject(err) : resolve(data)))
+    })
+    const zipBlob = new Blob([zipped as Uint8Array<ArrayBuffer>], { type: 'application/zip' })
+    const url = URL.createObjectURL(zipBlob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${slugify(job.title)}.zip`
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
   function handleFileUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0]
     event.currentTarget.value = ''
@@ -1193,6 +1319,60 @@ function App() {
                 100% private — your text and audio never leave this browser. Model files are downloaded once and cached locally.
               </p>
             </section>
+
+            {queueJobs.length > 0 ? (
+              <section className="output-panel" aria-label="Generation queue">
+                <div className="section-heading">
+                  <span>Queue ({queueJobs.length})</span>
+                </div>
+                <div className="result-list">
+                  {queueJobs.map((job) => {
+                    const { done, total, pct } = jobProgress(job)
+                    const isActive = activeJobId === job.id
+                    return (
+                      <div className="result-row" key={job.id}>
+                        <div className="result-meta">
+                          <span className="ready-dot" aria-hidden="true" />
+                          <strong>{job.title}</strong>
+                          <span>{done}/{total} chunks</span>
+                          <span>{pct}%</span>
+                        </div>
+                        <div className="result-actions">
+                          {pct < 100 && !isActive ? (
+                            <button type="button" onClick={() => resumeJob(job.id)} disabled={isGenerating}>
+                              <Play size={16} aria-hidden="true" />
+                              {done > 0 ? 'Resume' : 'Start'}
+                            </button>
+                          ) : null}
+                          {isActive ? (
+                            <button type="button" onClick={() => { abortRef.current = true }}>
+                              <X size={16} aria-hidden="true" />
+                              Pause
+                            </button>
+                          ) : null}
+                          {done > 0 ? (
+                            <button type="button" onClick={() => downloadJobZip(job.id)}>
+                              <Download size={16} aria-hidden="true" />
+                              ZIP
+                            </button>
+                          ) : null}
+                          {!isActive ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                deleteJob(job.id).then(() => setQueueJobs((prev) => prev.filter((j) => j.id !== job.id))).catch(() => {})
+                              }}
+                            >
+                              <Trash2 size={16} aria-hidden="true" />
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </section>
+            ) : null}
 
             {library.length > 0 ? (
               <section className="output-panel" aria-label="Clip library">
@@ -1729,6 +1909,12 @@ function App() {
                 </button>
               )}
 
+              {engine === 'kokoro' ? (
+                <button type="button" className="secondary-action" onClick={queueCurrentText} disabled={isGenerating || !usableText.trim()}>
+                  <FileText size={16} aria-hidden="true" />
+                  Queue
+                </button>
+              ) : null}
               <button type="button" className="secondary-action" onClick={clearOutputs}>
                 <Trash2 size={16} aria-hidden="true" />
                 Clear output
