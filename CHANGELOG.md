@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.8.0 - 2026-07-08
+
+### UI Polish
+- System-level interaction states: hover, focus-visible, active/pressed on all buttons, selects, engine cards, voice previews, and result rows.
+- Accessible focus ring (box-shadow) on editor textarea, replacing stripped outline.
+- Toast entrance animation (fade + slide up).
+- Generate button: hover glow, active press feedback, text-shadow for depth.
+- Settings panel: visual section dividers between voice, controls, and options groups.
+- Empty output state: centered layout with icon and guidance subtext.
+- Gen stats: monospace display in surface-2 background pill.
+- Progress bar: slimmer 6px track with rounded inner fill.
+- Brand mark: subtle scale on hover.
+- Heading-action buttons: larger touch targets (28px), hover accent.
+- Fatal error screen: centered design with colored icon and styled CTA.
+- Result rows: hover border accent.
+- ZIP download: success-tinted border treatment.
+- Footer: top border for visual closure.
+- Technical note: full-width integrated band with tinted background.
+
+### Microcopy
+- Starter text rewritten as welcoming first-run guidance.
+- Privacy note: "100% private — your text and audio never leave this browser."
+- Technical note: renamed "How it works" with user-facing model size info.
+- Error boundary: "Something went wrong" with helpful reload button.
+
+### Accessibility
+- Editor textarea focus-visible ring via parent :has() selector.
+- Pronunciation inputs: proper CSS classes with focus-visible rings and aria-labels.
+- Select dropdowns: hover and focus-visible states with accent ring.
+- All inline styles on pronunciation panel replaced with CSS classes.
+
+### Mobile
+- Voice buttons: 2-column grid at narrow widths (was 1-column).
+- Technical note: stacks gracefully at mobile breakpoint.
+
+### Housekeeping
+- Added 2 voices (Aoede, Sky) to complete the kokoro-js English catalog (28 total).
+- Project renamed from TTS4FREE to BetterTTS.
+- New design tokens: --shadow-sm, --ring (both themes).
+
 ## v0.7.0 - 2026-07-08
 
 ### Features
