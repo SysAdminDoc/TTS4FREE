@@ -5,8 +5,21 @@ let worker: Worker | null = null
 let nextId = 0
 const pending = new Map<number, { resolve: (samples: Float32Array) => void; reject: (err: Error) => void }>()
 let progressCallback: ((info: ProgressInfo) => void) | null = null
+let loadPromise: Promise<void> | null = null
+let loadKey = ''
 let loadResolve: (() => void) | null = null
 let loadReject: ((err: Error) => void) | null = null
+
+function rejectAll(err: Error) {
+  const reject = loadReject
+  loadResolve = null
+  loadReject = null
+  loadPromise = null
+  loadKey = ''
+  reject?.(err)
+  for (const entry of pending.values()) entry.reject(err)
+  pending.clear()
+}
 
 function getWorker(): Worker {
   if (worker) return worker
@@ -17,8 +30,15 @@ function getWorker(): Worker {
       progressCallback?.(msg.info)
     } else if (msg.type === 'loaded') {
       loadResolve?.()
+      loadResolve = null
+      loadReject = null
     } else if (msg.type === 'loadError') {
-      loadReject?.(new Error(msg.message))
+      const reject = loadReject
+      loadResolve = null
+      loadReject = null
+      loadPromise = null
+      loadKey = ''
+      reject?.(new Error(msg.message))
     } else if (msg.type === 'generated') {
       pending.get(msg.id)?.resolve(msg.samples)
       pending.delete(msg.id)
@@ -28,25 +48,28 @@ function getWorker(): Worker {
     }
   })
   worker.addEventListener('error', () => {
-    for (const { reject } of pending.values()) reject(new Error('Worker crashed'))
-    pending.clear()
     worker = null
+    rejectAll(new Error('The TTS worker crashed. Generate again to restart it.'))
   })
   return worker
 }
 
-export async function loadKokoroWorker(
+export function loadKokoroWorker(
   device: 'webgpu' | 'wasm',
   dtype: 'fp32' | 'q8',
   onProgress: (info: ProgressInfo) => void,
 ): Promise<void> {
   progressCallback = onProgress
+  const key = `${device}:${dtype}`
+  if (loadPromise && loadKey === key) return loadPromise
   const w = getWorker()
-  return new Promise<void>((resolve, reject) => {
+  loadKey = key
+  loadPromise = new Promise<void>((resolve, reject) => {
     loadResolve = resolve
     loadReject = reject
     w.postMessage({ type: 'load', device, dtype } satisfies WorkerRequest)
   })
+  return loadPromise
 }
 
 export function generateWorker(text: string, voice: string, speed: number): Promise<Float32Array> {
@@ -61,5 +84,5 @@ export function generateWorker(text: string, voice: string, speed: number): Prom
 export function resetWorker() {
   worker?.terminate()
   worker = null
-  pending.clear()
+  rejectAll(new Error('TTS session was reset.'))
 }

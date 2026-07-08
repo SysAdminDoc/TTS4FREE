@@ -188,6 +188,7 @@ function App() {
   const toastTimerRef = useRef<ReturnType<typeof setTimeout>>(null)
   const progressTimerRef = useRef<ReturnType<typeof setTimeout>>(null)
   const abortRef = useRef(false)
+  const generatingRef = useRef(false)
 
   const availableVoices = useMemo(() => VOICES.filter((voice) => voice.locale === locale), [locale])
   const selectedVoice = VOICES.find((voice) => voice.id === voiceId) ?? VOICES[0]
@@ -588,6 +589,7 @@ function App() {
   }
 
   async function handleGenerate() {
+    if (generatingRef.current) return
     const chunks = dialogMode ? [] : splitInput(usableText, separateLines)
 
     if (!dialogMode && chunks.length === 0) {
@@ -610,6 +612,7 @@ function App() {
     setIsSpeaking(false)
     abortRef.current = false
     setGenStats(null)
+    generatingRef.current = true
     setIsGenerating(true)
 
     try {
@@ -631,6 +634,7 @@ function App() {
         setProgress(null)
         progressTimerRef.current = null
       }, 700)
+      generatingRef.current = false
       setIsGenerating(false)
     }
   }
@@ -1404,6 +1408,7 @@ git subtree push --prefix dist origin gh-pages
           <span>BetterTTS v{APP_VERSION}</span>
           <button
             type="button"
+            disabled={isGenerating}
             onClick={() => {
               resetKokoroSession()
               resetWorker()

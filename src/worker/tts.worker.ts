@@ -15,11 +15,17 @@ export type WorkerResponse =
   | { type: 'generateError'; message: string; id: number }
 
 let tts: KokoroInstance | null = null
+let loadedKey = ''
 
 self.addEventListener('message', async (e: MessageEvent<WorkerRequest>) => {
   const msg = e.data
 
   if (msg.type === 'load') {
+    const key = `${msg.device}:${msg.dtype}`
+    if (tts && loadedKey === key) {
+      self.postMessage({ type: 'loaded' } satisfies WorkerResponse)
+      return
+    }
     try {
       const { KokoroTTS } = await import('kokoro-js')
       tts = await KokoroTTS.from_pretrained(KOKORO_MODEL_ID, {
@@ -29,9 +35,11 @@ self.addEventListener('message', async (e: MessageEvent<WorkerRequest>) => {
           self.postMessage({ type: 'progress', info: info as ProgressInfo } satisfies WorkerResponse)
         },
       })
+      loadedKey = key
       self.postMessage({ type: 'loaded' } satisfies WorkerResponse)
     } catch (err) {
       tts = null
+      loadedKey = ''
       self.postMessage({ type: 'loadError', message: err instanceof Error ? err.message : 'Model load failed' } satisfies WorkerResponse)
     }
     return
