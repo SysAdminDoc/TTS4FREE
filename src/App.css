@@ -86,10 +86,21 @@ footer button {
 }
 
 .nav-links a:hover,
-.nav-links a[aria-current='page'] {
+.nav-links a.active {
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .theme-button {
@@ -442,14 +453,13 @@ button:disabled {
   min-height: 34px;
   align-items: center;
   padding: 0 14px;
-  border-bottom: 2px solid transparent;
+  border-bottom: 2px solid color-mix(in srgb, var(--accent) 30%, transparent);
   color: var(--muted);
   font-size: 13px;
   font-weight: 650;
 }
 
-.surface-tabs .active {
-  border-color: var(--accent);
+.output-capabilities span:first-child {
   color: var(--accent);
 }
 
@@ -1013,6 +1023,10 @@ select:focus-visible {
   margin-bottom: 16px;
 }
 
+.bgm-volume-row {
+  margin-bottom: 0;
+}
+
 .bgm-controls {
   display: flex;
   gap: 8px;
@@ -1162,6 +1176,16 @@ select:focus-visible {
 
 .pron-input::placeholder {
   color: var(--muted);
+}
+
+.mix-weight-input {
+  width: 56px;
+  text-align: center;
+}
+
+.mix-formula {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .progress-wrap {

@@ -464,7 +464,7 @@ function ResultRow({ result, isSpeaking, onReplay, onShare, onSave }: ResultRowP
           </a>
         ) : null}
         {result.url && typeof navigator !== 'undefined' && 'canShare' in navigator ? (
-          <button type="button" onClick={() => onShare(result)} aria-label="Share">
+          <button type="button" onClick={() => onShare(result)} aria-label={`Share ${result.filename}`}>
             <Share2 size={16} aria-hidden="true" />
           </button>
         ) : null}
@@ -1158,6 +1158,15 @@ function App() {
     objectUrlsRef.current = []
     setResults([])
     setZipUrl(null)
+  }
+
+  function handleClearOutputs() {
+    const hadOutputs = results.length > 0
+    clearOutputs()
+    showToast({
+      tone: 'ok',
+      message: hadOutputs ? 'Output list cleared.' : 'No generated output to clear.',
+    })
   }
 
   function showToast(nextToast: Toast) {
@@ -2366,8 +2375,8 @@ function App() {
             </span>
             <span>BetterTTS</span>
           </a>
-          <nav className="nav-links" aria-label="Primary">
-            <a href="#studio" aria-current="page">
+        <nav className="nav-links" aria-label="Primary">
+            <a href="#studio" className="active">
               Voice Studio
             </a>
             <a href="#models">Models</a>
@@ -2482,9 +2491,9 @@ function App() {
                 <span>Output deck</span>
                 <span aria-live="polite">{status}</span>
               </div>
-              <div className="surface-tabs" aria-label="Output views">
-                <span className="active">Output</span>
-                <span>Timeline</span>
+              <div className="surface-tabs output-capabilities" aria-label="Output capabilities">
+                <span>Audio files</span>
+                <span>ZIP bundles</span>
                 <span>Captions</span>
               </div>
               {results.length === 0 ? (
@@ -2616,7 +2625,7 @@ function App() {
                 <div className="compact-empty">
                   <FileText size={28} aria-hidden="true" />
                   <strong>Queue is empty</strong>
-                  <span>Add long-form Kokoro jobs when you need resumable chapter output.</span>
+                  <span>Add long-form jobs when you need resumable chapter output.</span>
                 </div>
               </section>
             )}
@@ -2668,6 +2677,7 @@ function App() {
                   type="button"
                   className={engine === 'kokoro' ? 'engine-card selected' : 'engine-card'}
                   onClick={() => setEngine('kokoro')}
+                  aria-pressed={engine === 'kokoro'}
                 >
                   <span>{engine === 'kokoro' ? <Check size={17} aria-hidden="true" /> : null}</span>
                   <strong>Kokoro local</strong>
@@ -2680,6 +2690,7 @@ function App() {
                   type="button"
                   className={engine === 'supertonic' ? 'engine-card selected' : 'engine-card'}
                   onClick={() => setEngine('supertonic')}
+                  aria-pressed={engine === 'supertonic'}
                 >
                   <span>{engine === 'supertonic' ? <Check size={17} aria-hidden="true" /> : null}</span>
                   <strong>Supertonic</strong>
@@ -2689,6 +2700,7 @@ function App() {
                   type="button"
                   className={engine === 'kitten' ? 'engine-card selected' : 'engine-card'}
                   onClick={() => setEngine('kitten')}
+                  aria-pressed={engine === 'kitten'}
                 >
                   <span>{engine === 'kitten' ? <Check size={17} aria-hidden="true" /> : null}</span>
                   <strong>KittenTTS</strong>
@@ -2699,6 +2711,7 @@ function App() {
                     type="button"
                     className={engine === 'piper' ? 'engine-card selected' : 'engine-card'}
                     onClick={() => setEngine('piper')}
+                    aria-pressed={engine === 'piper'}
                   >
                     <span>{engine === 'piper' ? <Check size={17} aria-hidden="true" /> : null}</span>
                     <strong>Piper-plus</strong>
@@ -2709,6 +2722,7 @@ function App() {
                   type="button"
                   className={engine === 'browser' ? 'engine-card selected' : 'engine-card'}
                   onClick={() => setEngine('browser')}
+                  aria-pressed={engine === 'browser'}
                 >
                   <span>{engine === 'browser' ? <Check size={17} aria-hidden="true" /> : null}</span>
                   <strong>Browser</strong>
@@ -2848,6 +2862,7 @@ function App() {
                         type="button"
                         className={voice.id === voiceId ? 'selected' : ''}
                         onClick={() => setVoiceId(voice.id)}
+                        aria-pressed={voice.id === voiceId}
                       >
                         {voice.name}
                       </button>
@@ -2924,6 +2939,7 @@ function App() {
                         type="button"
                         className={voice.id === kittenVoiceId ? 'selected' : ''}
                         onClick={() => setKittenVoiceId(voice.id)}
+                        aria-pressed={voice.id === kittenVoiceId}
                       >
                         {voice.name}
                       </button>
@@ -3072,12 +3088,13 @@ function App() {
                       {bgmFile ? (
                         <button type="button" onClick={() => setBgmFile(null)}>
                           <X size={14} aria-hidden="true" />
+                          <span className="sr-only">Remove background music</span>
                         </button>
                       ) : null}
                       <input ref={bgmInputRef} type="file" accept="audio/*" onChange={(e) => { setBgmFile(e.target.files?.[0] ?? null); e.target.value = '' }} hidden />
                     </div>
                     {bgmFile ? (
-                      <div className="range-row" style={{ marginBottom: 0 }}>
+                      <div className="range-row bgm-volume-row">
                         <label htmlFor="bgm-vol">BGM volume</label>
                         <span>{Math.round(bgmVolume * 100)}%</span>
                         <input id="bgm-vol" type="range" min="0" max="0.5" step="0.01" value={bgmVolume} onChange={(e) => setBgmVolume(Number(e.target.value))} />
@@ -3258,13 +3275,14 @@ function App() {
                             )
                           }
                           aria-label={`Weight for voice ${idx + 1}`}
-                          style={{ width: 56, textAlign: 'center' }}
+                          className="mix-weight-input"
                         />
                         {voiceMixEntries.length > 2 ? (
                           <button
                             type="button"
                             className="heading-action"
                             onClick={() => setVoiceMixEntries((prev) => prev.filter((_, i) => i !== idx))}
+                            aria-label={`Remove mix voice ${idx + 1}`}
                           >
                             <X size={12} aria-hidden="true" />
                           </button>
@@ -3282,7 +3300,7 @@ function App() {
                         Add voice
                       </button>
                     ) : null}
-                    <small style={{ color: 'var(--muted)', fontSize: 12 }}>
+                    <small className="mix-formula">
                       {formatMixFormula(voiceMixEntries)}
                     </small>
                   </div>
@@ -3307,6 +3325,7 @@ function App() {
                             <button
                               type="button"
                               className="heading-action"
+                              aria-label={`Remove pronunciation for ${word}`}
                               onClick={() => setPronunciations((prev) => {
                                 const next = { ...prev }
                                 delete next[word]
@@ -3413,7 +3432,7 @@ function App() {
                 Queue
               </button>
               {queueDisabledReason && (engine === 'browser' || engine === 'piper') ? <small className="queue-disabled-note">{queueDisabledReason}</small> : null}
-              <button type="button" className="secondary-action" onClick={clearOutputs}>
+              <button type="button" className="secondary-action" onClick={handleClearOutputs}>
                 <Trash2 size={16} aria-hidden="true" />
                 Clear output
               </button>
@@ -3461,7 +3480,7 @@ function App() {
                 ))}
               </tbody>
             </table>
-            <p>Kokoro voices are wired for English, Spanish, French, Hindi, Italian, and Brazilian Portuguese. Japanese and Chinese remain unwired until a browser-safe G2P path is available.</p>
+            <p>Kokoro voices are wired for English, Spanish, French, Hindi, Italian, and Brazilian Portuguese. Kokoro Japanese and Chinese remain unavailable until a browser-safe G2P path is available; Piper-plus covers additional languages in the browser.</p>
             <div className="runtime-license-panel" aria-label="Runtime licenses">
               <div className="section-heading">
                 <span>Runtime licenses</span>
@@ -3494,9 +3513,8 @@ function App() {
             <p>BetterTTS builds to plain static files. No backend, no database, no GitHub Actions.</p>
             <pre>
               <code>{`npm install
-npm run build
-git subtree push --prefix dist origin gh-pages
-# In repo settings, serve Pages from gh-pages / root`}</code>
+npm run deploy
+# Builds, syncs model assets, and publishes dist/ to gh-pages`}</code>
             </pre>
             <a href="https://docs.github.com/pages" target="_blank" rel="noreferrer">
               GitHub Pages docs <ExternalLink size={15} aria-hidden="true" />
@@ -3523,7 +3541,7 @@ git subtree push --prefix dist origin gh-pages
                 URL.revokeObjectURL(url)
               }
               previewCacheRef.current.clear()
-              showToast({ tone: 'ok', message: 'Model cache handle reset for this page session.' })
+              showToast({ tone: 'ok', message: 'Runtime sessions reset for this page.' })
             }}
           >
             <RefreshCw size={15} aria-hidden="true" />
