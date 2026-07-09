@@ -33,7 +33,7 @@ Every cloud TTS service gates you behind signups, character limits, and paid tie
 ## Features
 
 ### Studio Interface
-- **Premium workstation UI** with a compact topbar, editor toolbar, output deck, persistent queue/library empty states, inspector-style engine controls, generation status module, and bottom system rail
+- **Premium workstation UI** with compact app chrome, command summary tiles, editor toolbar, waveform-style output deck, persistent queue/library states, inspector-style engine controls, generation status module, and bottom system rail
 - **Clean dark and light themes** using shared design tokens, 4-8px control radii, visible focus states, and mobile-responsive toolbar collapse
 
 ### Audio Generation

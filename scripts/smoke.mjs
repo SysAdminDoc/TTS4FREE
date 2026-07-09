@@ -212,7 +212,7 @@ async function runSmoke() {
     if (!title.includes('BetterTTS')) throw new Error(`Unexpected page title: ${title}`)
     const body = await desktop.page.locator('body').innerText()
     const bodyLower = body.toLowerCase()
-    if (!bodyLower.includes('script editor') || !bodyLower.includes('control console')) throw new Error('App shell did not render expected content')
+    if (!bodyLower.includes('script') || !bodyLower.includes('control console')) throw new Error('App shell did not render expected content')
     if (/Vite Error|Internal Server Error|Failed to compile/i.test(body)) throw new Error('Framework error overlay detected')
 
     console.log('Checking theme and diagnostics...')

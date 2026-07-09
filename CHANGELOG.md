@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changed
+- Reworked the studio shell into a more professional workstation layout with a six-tile command summary, stronger script editor framing, tabbed output deck, waveform-style output status, denser queue/library treatment, refreshed control-console modules, and responsive dark/light polish.
+
+### Fixed
+- Updated the rendered smoke check to follow the current Script surface label after the interface copy refresh.
+
 ## v0.14.0 - 2026-07-09
 
 ### Fixed

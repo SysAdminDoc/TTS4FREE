@@ -895,6 +895,57 @@ function App() {
           : engine === 'piper'
             ? `${PIPER_PLUS_MODEL_LABEL} - ${selectedPiperLanguage.label} - experimental lazy engine`
           : 'Device-native speech playback'
+  const activeEngineName =
+    engine === 'kokoro'
+      ? 'Kokoro 82M'
+      : engine === 'supertonic'
+        ? 'Supertonic'
+        : engine === 'kitten'
+          ? 'KittenTTS'
+          : engine === 'piper'
+            ? 'Piper-plus'
+            : 'Browser voices'
+  const activeVoiceName =
+    engine === 'kokoro'
+      ? selectedVoice.name
+      : engine === 'supertonic'
+        ? selectedSupertonicVoice.name
+        : engine === 'kitten'
+          ? selectedKittenVoice.name
+          : engine === 'piper'
+            ? selectedPiperLanguage.label
+            : browserVoices.find((voice) => voice.voiceURI === browserVoiceUri)?.name ?? 'Default voice'
+  const activeVoiceDetail =
+    engine === 'kokoro'
+      ? selectedKokoroLanguage.label
+      : engine === 'supertonic'
+        ? 'English speed engine'
+        : engine === 'kitten'
+          ? selectedKittenModel.label
+          : engine === 'piper'
+            ? PIPER_PLUS_MODEL_LABEL
+            : 'Device speech'
+  const activeSampleRate =
+    engine === 'supertonic'
+      ? `${(SUPERTONIC_SAMPLE_RATE / 1000).toFixed(1)} kHz`
+      : engine === 'piper'
+        ? `${(PIPER_PLUS_SAMPLE_RATE / 1000).toFixed(2)} kHz`
+        : `${(KOKORO_SAMPLE_RATE / 1000).toFixed(0)} kHz`
+  const outputFormatLabel =
+    engine === 'browser'
+      ? 'Live playback'
+      : audioFormat === 'mp3'
+        ? `MP3 - ${mp3Bitrate} kbps`
+        : audioFormat === 'opus'
+          ? 'Opus/WebM'
+          : `WAV - ${activeSampleRate}`
+  const captionModeLabel = wordTimestamps && englishKokoro ? 'Word-level captions' : engine === 'browser' ? 'Live only' : 'SRT + VTT'
+  const editorModeLabel = dialogMode ? 'Dialog script' : separateLines ? 'Line export' : 'Single clip'
+  const completedQueueChunks = queueJobs.reduce((total, job) => total + job.chunks.filter((chunk) => chunk.status === 'done').length, 0)
+  const totalQueueChunks = queueJobs.reduce((total, job) => total + job.chunks.length, 0)
+  const queueSummaryLabel = queueJobs.length > 0 ? `${queueJobs.length} jobs / ${completedQueueChunks}/${totalQueueChunks} chunks` : 'No queued jobs'
+  const librarySummaryLabel = library.length > 0 ? `${library.length} saved clips` : 'Library ready'
+  const cleanupSummary = Object.values(cleanup).some(Boolean) ? 'Cleanup on' : 'Cleanup off'
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -2448,7 +2499,7 @@ function App() {
           </a>
         <nav className="nav-links" aria-label="Primary">
             <a href="#studio" className={activeNavSection === 'studio' ? 'active' : undefined} aria-current={activeNavSection === 'studio' ? 'location' : undefined}>
-              Voice Studio
+              Studio
             </a>
             <a href="#models" className={activeNavSection === 'models' ? 'active' : undefined} aria-current={activeNavSection === 'models' ? 'location' : undefined}>Models</a>
             <a href="#docs" className={activeNavSection === 'docs' ? 'active' : undefined} aria-current={activeNavSection === 'docs' ? 'location' : undefined}>Docs</a>
@@ -2472,10 +2523,43 @@ function App() {
           </button>
         </header>
 
+        <section className="studio-command-strip" aria-label="Studio status summary">
+          <div className="summary-card summary-card-primary">
+            <span>Engine</span>
+            <strong>{activeEngineName}</strong>
+            <small>{engineStatus}</small>
+          </div>
+          <div className="summary-card">
+            <span>Voice</span>
+            <strong>{activeVoiceName}</strong>
+            <small>{activeVoiceDetail}</small>
+          </div>
+          <div className="summary-card">
+            <span>Speed / Pitch</span>
+            <strong>{speed.toFixed(2)}x / {pitchSemitones > 0 ? `+${pitchSemitones}` : pitchSemitones} st</strong>
+            <small>{editorModeLabel}</small>
+          </div>
+          <div className="summary-card">
+            <span>Output</span>
+            <strong>{outputFormatLabel}</strong>
+            <small>{captionModeLabel}</small>
+          </div>
+          <div className="summary-card">
+            <span>Queue</span>
+            <strong>{queueSummaryLabel}</strong>
+            <small>{librarySummaryLabel}</small>
+          </div>
+          <div className="summary-card">
+            <span>System</span>
+            <strong>{runtimeLabel}</strong>
+            <small>{storageEstimate ?? 'Storage ready'}</small>
+          </div>
+        </section>
+
         <section className="studio-grid" id="studio">
           <div className="editor-column">
             <div className="section-heading">
-              <span>Script editor</span>
+              <span>Script</span>
               <span className={overLimit ? 'danger-text' : ''}>
                 {text.length} / {MAX_TEXT_CHARS}
                 {overLimit ? ` (${text.length - MAX_TEXT_CHARS} over)` : ''}
@@ -2498,8 +2582,8 @@ function App() {
               <span>{wordCount} words</span>
               <span>{text.length} characters</span>
               <span>{lineCount} lines</span>
-              <span>Plain text</span>
-              <span>{cleanup.markdown ? 'Cleanup on' : 'Cleanup off'}</span>
+              <span>{editorModeLabel}</span>
+              <span>{cleanupSummary}</span>
             </div>
             <div className="editor-actions">
               <button type="button" onClick={() => setText('')}>
@@ -2557,10 +2641,27 @@ function App() {
               </div>
             </div>
 
-            <section className="output-panel" aria-label="Generated audio">
+            <section className="output-panel output-deck" id="generated-output" aria-label="Generated audio">
               <div className="section-heading">
-                <span>Output deck</span>
+                <span>Output</span>
                 <span aria-live="polite">{status}</span>
+              </div>
+              <div className="workspace-tabs" aria-label="Workspace sections">
+                <a href="#generated-output" className="active">Output</a>
+                <a href="#queue-panel">Queue</a>
+                <a href="#library-panel">Library</a>
+              </div>
+              <div className="output-session-card">
+                <div>
+                  <span>Current output</span>
+                  <strong>{results.length > 0 ? `${results.length} generated clip${results.length === 1 ? '' : 's'}` : 'Ready for synthesis'}</strong>
+                  <small>{activeEngineName} - {outputFormatLabel} - {captionModeLabel}</small>
+                </div>
+                <div className="output-session-meta">
+                  <strong>{activeSampleRate}</strong>
+                  <small>{status}</small>
+                </div>
+                <div className="output-waveform" aria-hidden="true" />
               </div>
               <div className="output-capabilities" aria-label="Available output formats">
                 <span>Audio files</span>
@@ -2601,7 +2702,7 @@ function App() {
 
             <div className="workspace-secondary-grid">
             {queueJobs.length > 0 ? (
-              <section className="output-panel" aria-label="Generation queue">
+              <section className="output-panel queue-panel" id="queue-panel" aria-label="Generation queue">
                 <div className="section-heading">
                   <span>Queue ({queueJobs.length})</span>
                 </div>
@@ -2616,7 +2717,7 @@ function App() {
                     const doneChunks = job.chunks.filter((chunk) => chunk.status === 'done')
                     const queueStatus = queueJobStatus(job)
                     return (
-                      <div className="result-row" key={job.id}>
+                      <div className="result-row queue-job-row" key={job.id}>
                         <div className="result-meta">
                           <span className={`ready-dot ${queueStatus}`} aria-hidden="true" />
                           <strong>{job.title}</strong>
@@ -2691,7 +2792,7 @@ function App() {
                 </div>
               </section>
             ) : (
-              <section className="output-panel" aria-label="Generation queue">
+              <section className="output-panel queue-panel" id="queue-panel" aria-label="Generation queue">
                 <div className="section-heading">
                   <span>Queue (0)</span>
                 </div>
@@ -2704,7 +2805,7 @@ function App() {
             )}
 
             {library.length > 0 ? (
-              <section className="output-panel" aria-label="Clip library">
+              <section className="output-panel library-panel" id="library-panel" aria-label="Clip library">
                 <div className="section-heading">
                   <span>Library ({library.length})</span>
                   <button
@@ -2722,7 +2823,7 @@ function App() {
                 </div>
               </section>
             ) : (
-              <section className="output-panel" aria-label="Clip library">
+              <section className="output-panel library-panel" id="library-panel" aria-label="Clip library">
                 <div className="section-heading">
                   <span>Library (0)</span>
                 </div>
@@ -2742,8 +2843,18 @@ function App() {
               <span>Control console</span>
               <span>v{APP_VERSION}</span>
             </div>
+            <div className="console-summary" aria-label="Selected voice and output">
+              <span>
+                <strong>{activeVoiceName}</strong>
+                <small>Voice</small>
+              </span>
+              <span>
+                <strong>{outputFormatLabel}</strong>
+                <small>Output</small>
+              </span>
+            </div>
 
-            <fieldset>
+            <fieldset className="control-module engine-module">
               <legend>Engine</legend>
               <div className="engine-grid">
                 <button
