@@ -7,11 +7,14 @@ directories:
   buildResources: build
 
 # The renderer (dist/) and the compiled main/preload (dist-electron/) are the
-# only things shipped; everything else is dev tooling.
+# only things shipped. main.cjs/preload.cjs are esbuild-bundled (deps inlined)
+# and the renderer is pre-bundled by Vite, so no node_modules are needed at
+# runtime — excluding them keeps the installer small.
 files:
   - dist/**/*
   - dist-electron/**/*
   - package.json
+  - "!node_modules/**/*"
 
 # Large model weights are fetched at runtime and cached natively, never bundled.
 asar: true

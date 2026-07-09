@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- Native ONNX Runtime probe (`npm run desktop:probe-ort`, `scripts/probe-native-ort.mjs`) — de-risking groundwork for desktop-native inference (ROADMAP TF-99). On this machine onnxruntime-node 1.27 loads the real Kokoro q8 graph; the CPU execution provider runs a clean forward pass (~276 ms / 12-token seq), while DirectML binds but hits a known quantized-ConvTranspose limitation — so native inference will ship CPU-EP-first with fp32-on-DirectML as the GPU follow-up. No app behavior change yet.
+- A Windows installer target (`npm run desktop:dist` → electron-builder NSIS x64); the packaged app was verified to launch and render the studio from its asar.
 - Desktop app scaffold (Electron, Phase 1). `npm run desktop:build` bundles the existing renderer for an Electron shell that serves it over a custom `app://` scheme with COOP/COEP + CSP set in the main process (crossOriginIsolated, no service worker). Security posture: `contextIsolation` on, `nodeIntegration` off, `sandbox` on, and a single narrow `betterttsPlatform` preload bridge. A `src/platform` seam keeps `App.tsx` platform-agnostic and makes the service worker web-only. `npm run desktop:smoke` verifies the studio renders in-shell via a hidden offscreen window (no focus steal). Native ONNX Runtime inference (onnxruntime-node / DirectML) and FFmpeg export land in later phases; see ROADMAP TF-97/99.
 
 ## v0.16.0 - 2026-07-09

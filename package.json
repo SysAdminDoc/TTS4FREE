@@ -20,7 +20,8 @@
     "desktop:dev": "cross-env BETTERTTS_TARGET=electron BETTERTTS_DEV_URL=http://localhost:5174/ concurrently -k -n vite,electron \"vite --port 5174 --strictPort\" \"node scripts/build-electron.mjs --dev && wait-on http://localhost:5174/ && node scripts/run-electron.mjs\"",
     "desktop:build": "cross-env BETTERTTS_TARGET=electron npm run build && node scripts/build-electron.mjs",
     "desktop:smoke": "npm run desktop:build && node scripts/run-electron.mjs --smoke",
-    "desktop:dist": "npm run desktop:build && electron-builder --win --config electron-builder.yml"
+    "desktop:dist": "npm run desktop:build && electron-builder --win --config electron-builder.yml",
+    "desktop:probe-ort": "node scripts/probe-native-ort.mjs"
   },
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",
@@ -54,6 +55,7 @@
     "esbuild": "^0.28.1",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^29.1.1",
+    "onnxruntime-node": "^1.27.0",
     "oxlint": "^1.71.0",
     "playwright": "^1.61.1",
     "typescript": "~6.0.2",
