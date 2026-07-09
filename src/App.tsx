@@ -39,6 +39,7 @@ import {
 import { type AudioFormat, encodeAudio, formatExtension, formatFromFilename, formatMime, mixBgm, opusSupported, shiftPitch } from './lib/encode.ts'
 import { readArticleResponseText } from './lib/article-import.ts'
 import { validateBackgroundMusicFile } from './lib/audio-file.ts'
+import { queueExportSizeError } from './lib/export-guards.ts'
 import { KOKORO_SAMPLE_RATE, type ProgressInfo, type RawAudioLike, loadKokoro, probeWebGpu, resetKokoroSession } from './lib/kokoro.ts'
 import { KOKORO_HF_RESOLVE_PREFIX, KOKORO_LOCAL_MODEL_PREFIX, KOKORO_MODEL_ID } from './lib/kokoro-assets.ts'
 import { loadTimestampedKokoro, resetTimestampedKokoroSession, synthesizeTimestampedKokoro } from './lib/kokoro-timestamps.ts'
@@ -2154,12 +2155,13 @@ function App() {
         chapterTitle?: string
         chapterIndex?: number
       }> = []
+      const blobEntries: Array<{ filename: string; blob: Blob }> = []
       for (const chunk of doneChunks) {
         const blob = await getChunkBlob(jobId, chunk.index)
         if (blob) {
           const ext = formatExtension(job.format)
           const filename = `${String(chunk.index + 1).padStart(3, '0')}-${slugify(chunk.text)}${ext}`
-          entries[filename] = new Uint8Array(await blob.arrayBuffer())
+          blobEntries.push({ filename, blob })
           manifestChunks.push({
             index: chunk.index,
             filename,
@@ -2172,6 +2174,14 @@ function App() {
       if (manifestChunks.length === 0) {
         showToast({ tone: 'warn', message: 'No completed audio blobs were available for this ZIP export. Resume the job, then try again.' })
         return
+      }
+      const exportError = queueExportSizeError(blobEntries.map((entry) => entry.blob))
+      if (exportError) {
+        showToast({ tone: 'warn', message: exportError })
+        return
+      }
+      for (const entry of blobEntries) {
+        entries[entry.filename] = new Uint8Array(await entry.blob.arrayBuffer())
       }
       entries['chapters.json'] = new TextEncoder().encode(JSON.stringify({
         app: 'BetterTTS',
@@ -2232,6 +2242,11 @@ function App() {
           chapterTitle: chunk.chapterTitle,
           chapterIndex: chunk.chapterIndex,
         })
+      }
+      const exportError = queueExportSizeError(chunks.map((chunk) => chunk.blob))
+      if (exportError) {
+        showToast({ tone: 'warn', message: exportError })
+        return
       }
 
       const { blob, chapterCount } = await buildM4bFromBlobs({
