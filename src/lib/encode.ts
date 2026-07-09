@@ -63,9 +63,21 @@ async function encodeOpus(samples: Float32Array, sampleRate: number, kbps: numbe
   }
 
   const chunks: Uint8Array[] = []
+  let codecDescription: Uint8Array | null = null
 
   const encoder = new AudioEncoder({
-    output(chunk) {
+    output(chunk, metadata) {
+      // The encoder's real OpusHead (with its actual pre-skip) arrives with the
+      // first chunk — use it as CodecPrivate instead of a synthetic zero-skip one.
+      const description = metadata?.decoderConfig?.description
+      if (!codecDescription && description) {
+        const bytes = ArrayBuffer.isView(description)
+          ? new Uint8Array(description.buffer, description.byteOffset, description.byteLength)
+          : new Uint8Array(description)
+        const copy = new Uint8Array(new ArrayBuffer(bytes.length))
+        copy.set(bytes)
+        codecDescription = copy
+      }
       const buf = new Uint8Array(chunk.byteLength)
       chunk.copyTo(buf)
       chunks.push(buf)
@@ -108,25 +120,38 @@ async function encodeOpus(samples: Float32Array, sampleRate: number, kbps: numbe
   encoder.close()
 
   // Wrap raw Opus frames in a minimal WebM container (universally playable).
-  return buildWebmOpus(chunks as Uint8Array<ArrayBuffer>[], sampleRate, pcm.length)
+  const paddedSamples = pcm.length % frameSize === 0 ? 0 : frameSize - (pcm.length % frameSize)
+  return buildWebmOpus(chunks as Uint8Array<ArrayBuffer>[], sampleRate, pcm.length, codecDescription, paddedSamples)
 }
 
 // Minimal WebM/Matroska container for Opus audio. The EBML header, Segment,
 // Info, Tracks, and Cluster elements are hand-crafted to avoid pulling in a
 // large muxer dependency for a single-track audio-only use case.
-function buildWebmOpus(opusFrames: Uint8Array[], sampleRate: number, totalSamples: number): Blob {
+// Exported for tests (WebCodecs is unavailable in the test environment).
+export function buildWebmOpus(
+  opusFrames: Uint8Array[],
+  sampleRate: number,
+  totalSamples: number,
+  codecDescription: Uint8Array | null = null,
+  paddedSamples = 0,
+): Blob {
   const durationMs = (totalSamples / sampleRate) * 1000
 
-  // Opus CodecPrivate (RFC 7845 identification header)
-  const codecPrivate = new Uint8Array(19)
-  const cpView = new DataView(codecPrivate.buffer)
-  codecPrivate.set([0x4f, 0x70, 0x75, 0x73, 0x48, 0x65, 0x61, 0x64]) // "OpusHead"
-  codecPrivate[8] = 1 // version
-  codecPrivate[9] = 1 // channel count
-  cpView.setUint16(10, 0, true) // pre-skip
-  cpView.setUint32(12, sampleRate, true) // input sample rate
-  cpView.setInt16(16, 0, true) // output gain
-  codecPrivate[18] = 0 // mapping family
+  // Prefer the encoder-provided OpusHead (carries the real pre-skip); fall
+  // back to a synthetic RFC 7845 identification header.
+  let codecPrivate = codecDescription
+  if (!codecPrivate || codecPrivate.length < 19) {
+    codecPrivate = new Uint8Array(19)
+    const cpView = new DataView(codecPrivate.buffer)
+    codecPrivate.set([0x4f, 0x70, 0x75, 0x73, 0x48, 0x65, 0x61, 0x64]) // "OpusHead"
+    codecPrivate[8] = 1 // version
+    codecPrivate[9] = 1 // channel count
+    cpView.setUint16(10, 0, true) // pre-skip
+    cpView.setUint32(12, sampleRate, true) // input sample rate
+    cpView.setInt16(16, 0, true) // output gain
+    codecPrivate[18] = 0 // mapping family
+  }
+  const preSkipSamples = new DataView(codecPrivate.buffer, codecPrivate.byteOffset).getUint16(10, true)
 
   const parts: Uint8Array[] = []
 
@@ -141,16 +166,33 @@ function buildWebmOpus(opusFrames: Uint8Array[], sampleRate: number, totalSample
     ebmlUint(0x4285, 2), // DocTypeReadVersion
   ]))
 
-  // Build cluster data first so we know its size for segment sizing.
-  const clusterParts: Uint8Array[] = []
-  clusterParts.push(ebmlUint(0xe7, 0)) // Timecode = 0
+  // SimpleBlock timestamps are a SIGNED int16 relative to their Cluster's
+  // timecode (max +32.767 s), so clusters must roll over well before that —
+  // a single cluster silently corrupts timestamps past 32.7 s of audio.
   const frameDurationMs = 20 // 960 samples at 48 kHz
-  for (let i = 0; i < opusFrames.length; i++) {
-    const ts = i * frameDurationMs
-    const simpleBlock = buildSimpleBlock(1, ts, opusFrames[i])
-    clusterParts.push(simpleBlock)
+  const framesPerCluster = 250 // 5 s per cluster, matching common muxers
+  const clusters: Uint8Array[] = []
+  for (let start = 0; start < opusFrames.length; start += framesPerCluster) {
+    const clusterTimeMs = start * frameDurationMs
+    const end = Math.min(start + framesPerCluster, opusFrames.length)
+    const clusterParts: Uint8Array[] = [ebmlUint(0xe7, clusterTimeMs)] // Timecode
+    for (let i = start; i < end; i++) {
+      const relativeTs = i * frameDurationMs - clusterTimeMs
+      const isLastFrame = i === opusFrames.length - 1
+      if (isLastFrame && paddedSamples > 0) {
+        // Declare the zero-padding appended to fill the final frame so players
+        // trim it instead of appending up to 20 ms of undeclared silence.
+        const discardPaddingNs = Math.round((paddedSamples / 48000) * 1_000_000_000)
+        clusterParts.push(ebml(0xa0, [ // BlockGroup
+          buildBlock(0xa1, 1, relativeTs, opusFrames[i], 0x00),
+          ebmlSint(0x75a2, discardPaddingNs), // DiscardPadding
+        ]))
+      } else {
+        clusterParts.push(buildBlock(0xa3, 1, relativeTs, opusFrames[i], 0x80)) // SimpleBlock, keyframe
+      }
+    }
+    clusters.push(ebml(0x1f43b675, clusterParts))
   }
-  const cluster = ebml(0x1f43b675, clusterParts)
 
   // Tracks element
   const trackEntry = ebml(0xae, [
@@ -158,6 +200,8 @@ function buildWebmOpus(opusFrames: Uint8Array[], sampleRate: number, totalSample
     ebmlUint(0x73c5, 1), // TrackUID
     ebmlUint(0x83, 2), // TrackType = audio
     ebmlStr(0x86, 'A_OPUS'), // CodecID
+    ebmlUint(0x56aa, Math.round((preSkipSamples / 48000) * 1_000_000_000)), // CodecDelay
+    ebmlUint(0x56bb, 80_000_000), // SeekPreRoll (80 ms per WebM-Opus guidelines)
     ebmlBin(0x63a2, codecPrivate), // CodecPrivate
     ebml(0xe1, [ // Audio
       ebmlFloat(0xb5, sampleRate), // SamplingFrequency
@@ -175,7 +219,7 @@ function buildWebmOpus(opusFrames: Uint8Array[], sampleRate: number, totalSample
   ])
 
   // Segment (unknown size)
-  const segmentContent = concat([info, tracks, cluster])
+  const segmentContent = concat([info, tracks, ...clusters])
   parts.push(ebmlUnknownSize(0x18538067, segmentContent))
 
   return new Blob(parts as Uint8Array<ArrayBuffer>[], { type: 'audio/webm;codecs=opus' })
@@ -236,15 +280,31 @@ function ebmlBin(id: number, data: Uint8Array): Uint8Array {
   return concat([ebmlId(id), ebmlSize(data.length), data])
 }
 
-function buildSimpleBlock(trackNum: number, timestampMs: number, frameData: Uint8Array): Uint8Array {
+// Shared layout for SimpleBlock (0xa3, flags carry keyframe bit) and Block
+// (0xa1, inside a BlockGroup, flags 0). Relative timestamps are signed int16;
+// callers must keep them within a cluster's ±32767 ms window.
+function buildBlock(id: number, trackNum: number, timestampMs: number, frameData: Uint8Array, flags: number): Uint8Array {
   const header = new Uint8Array(4)
   header[0] = 0x80 | trackNum // track number VINT
-  const ts = timestampMs & 0xffff
-  header[1] = (ts >> 8) & 0xff
-  header[2] = ts & 0xff
-  header[3] = 0x80 // keyframe flag
+  header[1] = (timestampMs >> 8) & 0xff
+  header[2] = timestampMs & 0xff
+  header[3] = flags
   const body = concat([header, frameData])
-  return concat([ebmlId(0xa3), ebmlSize(body.length), body])
+  return concat([ebmlId(id), ebmlSize(body.length), body])
+}
+
+// EBML signed integer (big-endian two's complement, minimal length).
+function ebmlSint(id: number, value: number): Uint8Array {
+  const bytes: number[] = []
+  let v = value
+  do {
+    bytes.unshift(v & 0xff)
+    v = Math.floor(v / 256)
+  } while (v > 0)
+  // Prepend a zero byte if the high bit is set, so a positive value is not
+  // misread as negative two's complement.
+  if (bytes[0] & 0x80) bytes.unshift(0)
+  return concat([ebmlId(id), ebmlSize(bytes.length), new Uint8Array(bytes)])
 }
 
 function concat(arrays: Uint8Array[]): Uint8Array {

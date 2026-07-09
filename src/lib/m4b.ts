@@ -241,7 +241,10 @@ async function decodeChapterSources(
 }
 
 async function chooseAacSampleRate(preferredRate: number): Promise<number> {
-  const rates = Array.from(new Set([preferredRate, ...AAC_CANDIDATE_SAMPLE_RATES]))
+  // The mp4a sample entry stores the rate as 16.16 fixed-point (max 65535 Hz),
+  // so a 88.2/96 kHz device output rate must be resampled down, not encoded —
+  // some platform AAC encoders would otherwise accept it and muxing would fail.
+  const rates = Array.from(new Set([preferredRate, ...AAC_CANDIDATE_SAMPLE_RATES])).filter((rate) => rate <= 48000)
   const sampleRate = await findSupportedAacSampleRate(AudioEncoder, rates)
   if (sampleRate != null) return sampleRate
   throw new Error('This browser does not expose a WebCodecs AAC encoder.')
@@ -339,40 +342,45 @@ async function encodeAacChapters(
     },
   })
 
-  encoder.configure({
-    codec: AAC_CODEC,
-    sampleRate,
-    numberOfChannels: 1,
-    bitrate: normalizedBitrate,
-  })
+  // Codec handles are a bounded platform resource — close the encoder on every
+  // exit path (flush timeout, encoder error, mid-loop throw), not just success.
+  try {
+    encoder.configure({
+      codec: AAC_CODEC,
+      sampleRate,
+      numberOfChannels: 1,
+      bitrate: normalizedBitrate,
+    })
 
-  const chapterMarks: Array<{ title: string; startSample: number }> = []
-  let pending = new Float32Array(0)
-  let sourceSamplesSeen = 0
-  for (const chapter of chapters) {
-    chapterMarks.push({ title: chapter.title, startSample: sourceSamplesSeen })
-    pending = appendAndEncode(encoder, pending, chapter.samples, sampleRate, sourceSamplesSeen - pending.length)
-    sourceSamplesSeen += chapter.samples.length
-  }
+    const chapterMarks: Array<{ title: string; startSample: number }> = []
+    let pending = new Float32Array(0)
+    let sourceSamplesSeen = 0
+    for (const chapter of chapters) {
+      chapterMarks.push({ title: chapter.title, startSample: sourceSamplesSeen })
+      pending = appendAndEncode(encoder, pending, chapter.samples, sampleRate, sourceSamplesSeen - pending.length)
+      sourceSamplesSeen += chapter.samples.length
+    }
 
-  if (pending.length > 0 || frames.length === 0) {
-    const padded = new Float32Array(AAC_FRAME_SAMPLES)
-    padded.set(pending)
-    encodeFrame(encoder, padded, sampleRate, sourceSamplesSeen - pending.length)
-  }
+    if (pending.length > 0 || frames.length === 0) {
+      const padded = new Float32Array(AAC_FRAME_SAMPLES)
+      padded.set(pending)
+      encodeFrame(encoder, padded, sampleRate, sourceSamplesSeen - pending.length)
+    }
 
-  await withTimeout(
-    Promise.race([encoder.flush(), errorPromise]),
-    AAC_FLUSH_TIMEOUT_MS,
-    'Timed out finalizing AAC frames for M4B export.',
-  )
-  encoder.close()
-  if (frames.length === 0) throw new Error('No AAC frames were produced.')
+    await withTimeout(
+      Promise.race([encoder.flush(), errorPromise]),
+      AAC_FLUSH_TIMEOUT_MS,
+      'Timed out finalizing AAC frames for M4B export.',
+    )
+    if (frames.length === 0) throw new Error('No AAC frames were produced.')
 
-  return {
-    frames,
-    chapters: chapterMarks,
-    audioSpecificConfig: audioSpecificConfig ?? aacAudioSpecificConfig(sampleRate, 1),
+    return {
+      frames,
+      chapters: chapterMarks,
+      audioSpecificConfig: audioSpecificConfig ?? aacAudioSpecificConfig(sampleRate, 1),
+    }
+  } finally {
+    if (encoder.state !== 'closed') encoder.close()
   }
 }
 

@@ -11,8 +11,8 @@ export type WorkerRequest =
 
 export type WorkerResponse =
   | { type: 'progress'; info: ProgressInfo }
-  | { type: 'loaded' }
-  | { type: 'loadError'; message: string }
+  | { type: 'loaded'; key: string }
+  | { type: 'loadError'; message: string; key: string }
   | { type: 'generated'; samples: Float32Array; id: number }
   | { type: 'generateError'; message: string; id: number }
 
@@ -25,7 +25,7 @@ self.addEventListener('message', async (e: MessageEvent<WorkerRequest>) => {
   if (msg.type === 'load') {
     const key = `${msg.device}:${msg.dtype}`
     if (tts && loadedKey === key) {
-      self.postMessage({ type: 'loaded' } satisfies WorkerResponse)
+      self.postMessage({ type: 'loaded', key } satisfies WorkerResponse)
       return
     }
     try {
@@ -39,11 +39,11 @@ self.addEventListener('message', async (e: MessageEvent<WorkerRequest>) => {
         },
       })
       loadedKey = key
-      self.postMessage({ type: 'loaded' } satisfies WorkerResponse)
+      self.postMessage({ type: 'loaded', key } satisfies WorkerResponse)
     } catch (err) {
       tts = null
       loadedKey = ''
-      self.postMessage({ type: 'loadError', message: err instanceof Error ? err.message : 'Model load failed' } satisfies WorkerResponse)
+      self.postMessage({ type: 'loadError', message: err instanceof Error ? err.message : 'Model load failed', key } satisfies WorkerResponse)
     }
     return
   }

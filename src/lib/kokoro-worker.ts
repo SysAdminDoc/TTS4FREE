@@ -7,16 +7,15 @@ const pending = new Map<number, { resolve: (samples: Float32Array) => void; reje
 let progressCallback: ((info: ProgressInfo) => void) | null = null
 let loadPromise: Promise<void> | null = null
 let loadKey = ''
-let loadResolve: (() => void) | null = null
-let loadReject: ((err: Error) => void) | null = null
+// Loads are keyed by "device:dtype" so overlapping loads with different keys
+// can never orphan the first promise or resolve against the wrong model.
+const loadWaiters = new Map<string, { resolve: () => void; reject: (err: Error) => void }>()
 
 function rejectAll(err: Error) {
-  const reject = loadReject
-  loadResolve = null
-  loadReject = null
   loadPromise = null
   loadKey = ''
-  reject?.(err)
+  for (const waiter of loadWaiters.values()) waiter.reject(err)
+  loadWaiters.clear()
   for (const entry of pending.values()) entry.reject(err)
   pending.clear()
 }
@@ -29,16 +28,16 @@ function getWorker(): Worker {
     if (msg.type === 'progress') {
       progressCallback?.(msg.info)
     } else if (msg.type === 'loaded') {
-      loadResolve?.()
-      loadResolve = null
-      loadReject = null
+      loadWaiters.get(msg.key)?.resolve()
+      loadWaiters.delete(msg.key)
     } else if (msg.type === 'loadError') {
-      const reject = loadReject
-      loadResolve = null
-      loadReject = null
-      loadPromise = null
-      loadKey = ''
-      reject?.(new Error(msg.message))
+      const waiter = loadWaiters.get(msg.key)
+      loadWaiters.delete(msg.key)
+      if (loadKey === msg.key) {
+        loadPromise = null
+        loadKey = ''
+      }
+      waiter?.reject(new Error(msg.message))
     } else if (msg.type === 'generated') {
       pending.get(msg.id)?.resolve(msg.samples)
       pending.delete(msg.id)
@@ -65,8 +64,7 @@ export function loadKokoroWorker(
   const w = getWorker()
   loadKey = key
   loadPromise = new Promise<void>((resolve, reject) => {
-    loadResolve = resolve
-    loadReject = reject
+    loadWaiters.set(key, { resolve, reject })
     w.postMessage({ type: 'load', device, dtype } satisfies WorkerRequest)
   })
   return loadPromise

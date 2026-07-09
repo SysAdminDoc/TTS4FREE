@@ -69,7 +69,7 @@ export async function synthesizeKitten(
 export async function wavBlobToFloat32(blob: Blob): Promise<KittenSynthesizedAudio> {
   const buffer = await blob.arrayBuffer()
   const view = new DataView(buffer)
-  if (readAscii(view, 0, 4) !== 'RIFF' || readAscii(view, 8, 4) !== 'WAVE') {
+  if (view.byteLength < 12 || readAscii(view, 0, 4) !== 'RIFF' || readAscii(view, 8, 4) !== 'WAVE') {
     throw new Error('KittenTTS returned an invalid WAV payload.')
   }
 
@@ -86,13 +86,20 @@ export async function wavBlobToFloat32(blob: Blob): Promise<KittenSynthesizedAud
     const size = view.getUint32(offset + 4, true)
     const start = offset + 8
     if (id === 'fmt ') {
+      // A declared chunk size can overrun a truncated payload — verify the
+      // 16 PCM header bytes actually exist before reading them.
+      if (size < 16 || start + 16 > view.byteLength) {
+        throw new Error('KittenTTS returned an invalid WAV payload.')
+      }
       format = view.getUint16(start, true)
       channels = view.getUint16(start + 2, true)
       sampleRate = view.getUint32(start + 4, true)
       bitsPerSample = view.getUint16(start + 14, true)
     } else if (id === 'data') {
       dataOffset = start
-      dataLength = size
+      // Clamp to the real buffer so a truncated blob yields short audio
+      // instead of an out-of-bounds read mid-conversion.
+      dataLength = Math.min(size, view.byteLength - start)
     }
     offset = start + size + (size % 2)
   }
