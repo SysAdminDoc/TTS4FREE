@@ -1,4 +1,5 @@
-import { app, BrowserWindow, protocol, session, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, protocol, session, shell, utilityProcess } from 'electron'
+import type { UtilityProcess, WebContents } from 'electron'
 import { readFile, writeFile } from 'node:fs/promises'
 import { extname, join, normalize, sep } from 'node:path'
 
@@ -98,6 +99,76 @@ function registerAppProtocol(): void {
   })
 }
 
+// --- Native TTS inference host (TF-99) ---------------------------------------
+// A lazy utilityProcess runs kokoro-js on onnxruntime-node (CPU EP) so heavy
+// inference never touches the renderer or main thread. Main only relays
+// structured-cloneable messages between the renderer and the host.
+const NATIVE_TTS_CHANNEL = 'bettertts:native-tts'
+let ttsHost: UtilityProcess | null = null
+let ttsHostSubscriber: WebContents | null = null
+
+function sendToSubscriber(message: unknown): void {
+  if (ttsHostSubscriber && !ttsHostSubscriber.isDestroyed()) {
+    ttsHostSubscriber.send(NATIVE_TTS_CHANNEL, message)
+  }
+}
+
+function ensureTtsHost(): UtilityProcess {
+  if (ttsHost) return ttsHost
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    BETTERTTS_MODEL_CACHE: join(app.getPath('userData'), 'native-models'),
+  }
+  // Same dev-environment hazard as scripts/run-electron.mjs: a present-but-set
+  // ELECTRON_RUN_AS_NODE must be deleted, never blanked.
+  delete env.ELECTRON_RUN_AS_NODE
+  const host = utilityProcess.fork(join(__dirname, 'tts-host.mjs'), [], {
+    serviceName: 'BetterTTS native inference',
+    env: env as Record<string, string>,
+  })
+  host.on('message', (message) => sendToSubscriber(message))
+  host.on('exit', () => {
+    if (ttsHost === host) {
+      ttsHost = null
+      sendToSubscriber({ type: 'crashed' })
+    }
+  })
+  ttsHost = host
+  return host
+}
+
+ipcMain.on(NATIVE_TTS_CHANNEL, (event, message: unknown) => {
+  ttsHostSubscriber = event.sender
+  if (message && typeof message === 'object' && (message as { type?: string }).type === 'reset') {
+    const host = ttsHost
+    ttsHost = null
+    host?.kill()
+    return
+  }
+  ensureTtsHost().postMessage(message)
+})
+
+// Ask the host for its runtime info without loading any model — used by the
+// smoke check to prove the utilityProcess spawns and answers inside Electron.
+function probeTtsHostInfo(timeoutMs = 8000): Promise<unknown> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const host = ensureTtsHost()
+    const timer = setTimeout(() => {
+      host.removeListener('message', onMessage)
+      rejectPromise(new Error('native host info timeout'))
+    }, timeoutMs)
+    const onMessage = (message: unknown) => {
+      if (message && typeof message === 'object' && (message as { type?: string }).type === 'info') {
+        clearTimeout(timer)
+        host.removeListener('message', onMessage)
+        resolvePromise(message)
+      }
+    }
+    host.on('message', onMessage)
+    host.postMessage({ type: 'info' })
+  })
+}
+
 function applyDevSecurityHeaders(): void {
   // The Vite dev server can't set COOP/COEP itself, so inject them here to keep
   // the isolated-context behavior identical to production.
@@ -159,12 +230,16 @@ async function runSmoke(win: BrowserWindow): Promise<void> {
     })
     await new Promise((r) => setTimeout(r, 2500))
 
+    // The bridge holds functions (nativeTts.post/onMessage) which cannot cross
+    // executeJavaScript's structured clone — probe serializable facts only.
     const probe = (await win.webContents.executeJavaScript(`(() => ({
       brand: document.querySelector('.brand')?.textContent?.trim() ?? null,
       railItems: document.querySelectorAll('.rail-link').length,
       generate: !!document.querySelector('.generate-button'),
-      platform: window.betterttsPlatform ?? null,
-    }))()`)) as { brand: string | null; railItems: number; generate: boolean; platform: unknown }
+      platform: window.betterttsPlatform
+        ? { kind: window.betterttsPlatform.kind, nativeTts: !!window.betterttsPlatform.nativeTts }
+        : null,
+    }))()`)) as { brand: string | null; railItems: number; generate: boolean; platform: { kind: string; nativeTts: boolean } | null }
 
     try {
       const image = await win.webContents.capturePage()
@@ -174,7 +249,19 @@ async function runSmoke(win: BrowserWindow): Promise<void> {
       /* capture is best-effort on a hidden window */
     }
 
-    result.ok = probe.brand === 'BetterTTS' && probe.railItems >= 5 && probe.generate && Boolean(probe.platform)
+    try {
+      const nativeHost = (await probeTtsHostInfo()) as { runtime?: unknown }
+      result.nativeHost = nativeHost.runtime ?? nativeHost
+    } catch (err) {
+      result.nativeHostError = err instanceof Error ? err.message : String(err)
+    }
+
+    result.ok =
+      probe.brand === 'BetterTTS' &&
+      probe.railItems >= 5 &&
+      probe.generate &&
+      Boolean(probe.platform) &&
+      Boolean(result.nativeHost)
     result.probe = probe
   } catch (err) {
     result.error = err instanceof Error ? err.message : String(err)

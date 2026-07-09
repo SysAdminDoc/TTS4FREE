@@ -1,8 +1,10 @@
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 
-// The single, narrow bridge the renderer sees. Phase 2+ adds synthesize/export/
-// storage IPC methods here; today it only advertises the desktop platform so the
-// renderer can route around browser-only paths (e.g. skip service-worker setup).
+const NATIVE_TTS_CHANNEL = 'bettertts:native-tts'
+
+// The single, narrow bridge the renderer sees. Native TTS messages relay
+// through main to the inference utilityProcess; payloads are structured-clone
+// data only (strings, numbers, Float32Array) — no functions, no handles.
 const bridge = {
   isDesktop: true as const,
   kind: 'desktop' as const,
@@ -10,6 +12,18 @@ const bridge = {
     electron: process.versions.electron,
     chrome: process.versions.chrome,
     node: process.versions.node,
+  },
+  nativeTts: {
+    post(message: unknown): void {
+      ipcRenderer.send(NATIVE_TTS_CHANNEL, message)
+    },
+    onMessage(listener: (message: unknown) => void): () => void {
+      const handler = (_event: unknown, message: unknown) => listener(message)
+      ipcRenderer.on(NATIVE_TTS_CHANNEL, handler)
+      return () => {
+        ipcRenderer.removeListener(NATIVE_TTS_CHANNEL, handler)
+      }
+    },
   },
 }
 

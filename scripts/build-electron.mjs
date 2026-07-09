@@ -21,6 +21,16 @@ const common = {
 await Promise.all([
   build({ ...common, entryPoints: ['electron/main.ts'], outfile: 'dist-electron/main.cjs' }),
   build({ ...common, entryPoints: ['electron/preload.ts'], outfile: 'dist-electron/preload.cjs' }),
+  // The native inference host stays ESM so its dynamic imports of kokoro-js /
+  // transformers resolve natively from node_modules (never bundled — the ORT
+  // native addon and the transformers Node backend must load from disk).
+  build({
+    ...common,
+    format: 'esm',
+    entryPoints: ['electron/tts-host.ts'],
+    outfile: 'dist-electron/tts-host.mjs',
+    external: ['electron', 'onnxruntime-node', '@huggingface/transformers', 'kokoro-js', 'phonemizer'],
+  }),
 ])
 
-console.log('Built Electron main + preload → dist-electron/')
+console.log('Built Electron main + preload + tts-host → dist-electron/')

@@ -47,6 +47,7 @@ import { KOKORO_HF_RESOLVE_PREFIX, KOKORO_LOCAL_MODEL_PREFIX, KOKORO_MODEL_ID } 
 import { loadTimestampedKokoro, resetTimestampedKokoroSession, synthesizeTimestampedKokoro } from './lib/kokoro-timestamps.ts'
 import { needsDirectKokoroPath } from './lib/kokoro-direct.ts'
 import { generateWorker, loadKokoroWorker, resetWorker } from './lib/kokoro-worker.ts'
+import { generateNative, loadNativeKokoro, nativeTtsAvailable, resetNativeTts } from './platform/native-tts.ts'
 import { type VoiceMixEntry, blendVoiceBins, fetchVoiceBin, formatMixFormula } from './lib/voice-mix.ts'
 import { type ClipRecord, clearLibrary, deleteClip, enforceLibraryCap, getClipBlob, listClips, saveClip } from './lib/library.ts'
 import { buildM4bFromBlobs, checkM4bCapability, type M4bCapability } from './lib/m4b.ts'
@@ -827,6 +828,15 @@ function App() {
       return false
     }
   })
+  const nativeAvailable = nativeTtsAvailable()
+  const [forceNative, setForceNative] = useState(() => {
+    if (!nativeTtsAvailable()) return false
+    try {
+      return window.localStorage.getItem('bettertts-backend') === 'native'
+    } catch {
+      return false
+    }
+  })
   const [runtimeLabel, setRuntimeLabel] = useState(
     typeof navigator !== 'undefined' && 'gpu' in navigator ? 'WebGPU fp32' : 'WebAssembly q8',
   )
@@ -1000,12 +1010,14 @@ function App() {
   }, [experimentalPiperEnabled, engine])
 
   useEffect(() => {
-    if (forceWasm) {
+    if (forceNative) {
+      setRuntimeLabel('Native ORT CPU q8')
+    } else if (forceWasm) {
       setRuntimeLabel('WebAssembly q8')
     } else {
       probeWebGpu().then((hasGpu) => setRuntimeLabel(hasGpu ? 'WebGPU fp32' : 'WebAssembly q8'))
     }
-  }, [forceWasm])
+  }, [forceWasm, forceNative])
 
   useEffect(() => {
     setSpeed((current) => {
@@ -1351,6 +1363,22 @@ function App() {
       setRuntimeLabel('WebAssembly q8 + word timestamps')
       return {
         synthesize: (text, voice, spd, bin) => synthesizeTimestampedKokoro(tts, text, voice, spd, bin),
+      }
+    }
+
+    if (forceNative && nativeAvailable) {
+      const runtime = await loadNativeKokoro(onProgress)
+      setRuntimeLabel(`Native ORT ${runtime.ep.toUpperCase()} q8 · onnxruntime-node ${runtime.ortVersion}`)
+      return {
+        synthesize: async (text, voice, spd, bin) => {
+          if (needsDirectKokoroPath(voice, bin)) {
+            // Blended and multilingual voices still route through the browser
+            // runtime — the native host covers the standard English path first.
+            await loadKokoroWorker('wasm', 'q8', onProgress)
+            return { samples: await generateWorker(text, voice, spd, bin), sampleRate: KOKORO_SAMPLE_RATE }
+          }
+          return { samples: await generateNative(text, voice, spd), sampleRate: KOKORO_SAMPLE_RATE }
+        },
       }
     }
 
@@ -3484,10 +3512,11 @@ function App() {
                       <input
                         type="checkbox"
                         checked={forceWasm}
-                        disabled={isGenerating}
+                        disabled={isGenerating || forceNative}
                         onChange={(event) => {
                           const next = event.target.checked
                           setForceWasm(next)
+                          setForceNative(false)
                           try {
                             window.localStorage.setItem('bettertts-backend', next ? 'wasm' : 'auto')
                           } catch { /* storage blocked */ }
@@ -3498,9 +3527,34 @@ function App() {
                       />
                       <span>
                         CPU mode (WASM)
-                        <small>Use if audio sounds corrupted or distorted on your GPU.</small>
+                        <small>{forceNative ? 'Managed by the native desktop engine.' : 'Use if audio sounds corrupted or distorted on your GPU.'}</small>
                       </span>
                     </label>
+                    {nativeAvailable ? (
+                      <label className="toggle-row">
+                        <input
+                          type="checkbox"
+                          checked={forceNative}
+                          disabled={isGenerating}
+                          onChange={(event) => {
+                            const next = event.target.checked
+                            setForceNative(next)
+                            if (next) setForceWasm(false)
+                            try {
+                              window.localStorage.setItem('bettertts-backend', next ? 'native' : 'auto')
+                            } catch { /* storage blocked */ }
+                            resetKokoroSession()
+                            resetTimestampedKokoroSession()
+                            resetWorker()
+                            resetNativeTts()
+                          }}
+                        />
+                        <span>
+                          Native engine (desktop)
+                          <small>Synthesize with onnxruntime-node on the CPU — outside browser WASM limits.</small>
+                        </span>
+                      </label>
+                    ) : null}
                     <label className="toggle-row">
                       <input
                         type="checkbox"
@@ -3856,6 +3910,7 @@ npm run deploy
               resetTimestampedKokoroSession()
               resetWorker()
               resetPiperPlusSession()
+              if (nativeAvailable) resetNativeTts()
               for (const url of previewCacheRef.current.values()) {
                 URL.revokeObjectURL(url)
               }

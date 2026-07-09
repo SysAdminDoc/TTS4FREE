@@ -6,15 +6,19 @@ directories:
   output: release
   buildResources: build
 
-# The renderer (dist/) and the compiled main/preload (dist-electron/) are the
-# only things shipped. main.cjs/preload.cjs are esbuild-bundled (deps inlined)
-# and the renderer is pre-bundled by Vite, so no node_modules are needed at
-# runtime — excluding them keeps the installer small.
+# The renderer (dist/) and the compiled main/preload/tts-host (dist-electron/)
+# ship alongside the production node_modules the native inference host resolves
+# at runtime (kokoro-js → @huggingface/transformers → onnxruntime-node).
+# main.cjs/preload.cjs stay esbuild-bundled; the host's model deps cannot be
+# bundled because the ORT native addon loads from disk.
 files:
   - dist/**/*
   - dist-electron/**/*
   - package.json
-  - "!node_modules/**/*"
+
+# Native addons must live outside the asar so the OS loader can dlopen them.
+asarUnpack:
+  - "**/*.node"
 
 # Large model weights are fetched at runtime and cached natively, never bundled.
 asar: true

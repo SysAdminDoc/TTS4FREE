@@ -5,10 +5,16 @@
 
 export type PlatformKind = 'web' | 'desktop'
 
+export type NativeTtsBridge = {
+  post: (message: unknown) => void
+  onMessage: (listener: (message: unknown) => void) => () => void
+}
+
 export type DesktopBridge = {
   isDesktop: true
   kind: 'desktop'
   versions: { electron: string; chrome: string; node: string }
+  nativeTts?: NativeTtsBridge
 }
 
 declare global {
@@ -32,4 +38,9 @@ export function getPlatform(): PlatformInfo {
 
 export function isDesktop(): boolean {
   return getPlatform().isDesktop
+}
+
+export function getNativeTtsBridge(): NativeTtsBridge | null {
+  if (typeof window === 'undefined') return null
+  return window.betterttsPlatform?.nativeTts ?? null
 }
