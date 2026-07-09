@@ -1,5 +1,5 @@
 import type { AudioFormat } from './encode.ts'
-import type { VoiceId } from './voices.ts'
+import type { KokoroLocale, VoiceId } from './voices.ts'
 
 export type ChunkStatus = 'pending' | 'generating' | 'done' | 'failed'
 
@@ -18,6 +18,7 @@ export type QueueJob = {
   title: string
   createdAt: number
   voice: VoiceId | string
+  language?: KokoroLocale
   speed: number
   format: AudioFormat
   bitrate: number

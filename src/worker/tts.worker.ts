@@ -1,5 +1,6 @@
 import { KOKORO_MODEL_ID, installKokoroAssetFallback } from '../lib/kokoro-assets.ts'
 import type { ProgressInfo } from '../lib/kokoro.ts'
+import { needsDirectKokoroPath, synthesizeDirectKokoro } from '../lib/kokoro-multilingual.ts'
 
 type KokoroModule = typeof import('kokoro-js')
 type KokoroInstance = Awaited<ReturnType<KokoroModule['KokoroTTS']['from_pretrained']>>
@@ -55,25 +56,9 @@ self.addEventListener('message', async (e: MessageEvent<WorkerRequest>) => {
     try {
       let samples: Float32Array | undefined
 
-      if (msg.voiceBin) {
-        // Voice-mix path: replicate kokoro-js's generate pipeline with a
-        // custom blended style tensor instead of looking up a named voice bin.
-        const { Tensor } = await import('@huggingface/transformers')
-        const { phonemize } = await import('phonemizer')
-        const langCode = msg.voice.charAt(0) === 'a' ? 'en-us' : 'en'
-        const phonemeArr = await phonemize(msg.text, langCode) as string[]
-        const phonemes = phonemeArr.join(' ')
-        const tokenized = (tts as unknown as { tokenizer(text: string, opts: { truncation: boolean }): { input_ids: { dims: readonly number[] } } })
-          .tokenizer(phonemes, { truncation: true })
-        const numTokens = tokenized.input_ids.dims.at(-1) ?? 0
-        const offset = 256 * Math.min(Math.max(numTokens - 2, 0), 509)
-        const styleSlice = msg.voiceBin.slice(offset, offset + 256)
-        const { waveform } = await (tts as unknown as { model(input: unknown): Promise<{ waveform: { data: Float32Array } }> }).model({
-          input_ids: tokenized.input_ids,
-          style: new Tensor('float32', styleSlice, [1, 256]),
-          speed: new Tensor('float32', [msg.speed], [1]),
-        })
-        samples = waveform.data
+      if (needsDirectKokoroPath(msg.voice, msg.voiceBin)) {
+        const audio = await synthesizeDirectKokoro(tts, msg.text, msg.voice, msg.speed, msg.voiceBin)
+        samples = audio?.samples
       } else {
         const audio = (await tts.generate(msg.text, { voice: msg.voice as never, speed: msg.speed })) as { audio?: Float32Array }
         samples = audio.audio

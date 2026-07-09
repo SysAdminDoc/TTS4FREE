@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/platform-GitHub%20Pages-24292f.svg)](https://sysadmindoc.github.io/BetterTTS/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178c6.svg)](#)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](#)
-[![Tests](https://img.shields.io/badge/tests-106%20passing-53d889.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-109%20passing-53d889.svg)](#)
 
 **Free client-side text-to-speech studio.** Kokoro 82M runs entirely in your browser — no server, no signup, no usage caps (5,000 characters per run, unlimited runs). Export WAV, MP3, Opus, or chaptered M4B — keep everything private.
 
@@ -26,7 +26,7 @@ Every cloud TTS service gates you behind signups, character limits, and paid tie
 | MP3 export | **Yes** | Yes | Yes | No |
 | Commercial use | **Yes (MIT)** | Paid only | With attribution | Yes |
 | Subtitle export | **SRT + VTT** | No | SRT (paid) | No |
-| Voice count | 28 | 30+ (free tier) | 300+ | 54 |
+| Voice count | 41 | 30+ (free tier) | 300+ | 54 |
 | Pitch control | **Yes** | Paid only | No | No |
 | Offline capable | **Yes (PWA)** | No | No | No |
 
@@ -35,7 +35,8 @@ Every cloud TTS service gates you behind signups, character limits, and paid tie
 ### Audio Generation
 - **Kokoro 82M** neural TTS via `kokoro-js` + Transformers.js — top-tier voice quality (MOS 4.3-4.5)
 - **Supertonic speed engine** via Transformers.js — 10 English F/M voices, 44.1 kHz fp32 output, lazy-loaded only when selected
-- **28 English voices** — 12 US female, 9 US male, 4 British female, 4 British male, each with quality grades
+- **41 Kokoro voices** — 28 English voices plus Spanish, French, Hindi, Italian, and Brazilian Portuguese voices
+- **Multilingual Kokoro pack** — ephone/eSpeak NG phonemization routes `es`, `fr`, `it`, `pt-BR`, and `hi` through the direct Kokoro model path
 - **WebGPU acceleration** with automatic WASM q8 fallback for devices without GPU support
 - **Pages-hosted WASM q8 model** with Hugging Face fallback and 429-aware retry; WebGPU fp32 stays HF-hosted because it exceeds the Pages file cap
 - **Web Worker inference** — generation runs off the main thread so the UI stays responsive
@@ -110,10 +111,10 @@ Open `http://localhost:5173/BetterTTS/` in your browser.
 | MP3 Encoding | `@breezystack/lamejs` (LGPL-2.1, browser LAME) |
 | M4B Export | WebCodecs AAC + direct ISO BMFF writer with QuickTime/Nero chapter metadata |
 | Pitch Shifting | `signalsmith-stretch` (MIT, AudioWorklet/WASM) |
-| Phonemization | `phonemizer` (Apache-2.0, eSpeak NG WASM) |
+| Phonemization | `phonemizer` for English + `ephone`/eSpeak NG WASM for multilingual Kokoro |
 | ZIP Packaging | `fflate` |
 | Icons | `lucide-react` |
-| Testing | Vitest (106 assertions across 12 suites) |
+| Testing | Vitest (109 assertions across 13 suites) |
 | Linting | oxlint |
 | Hosting | GitHub Pages (static, no backend) |
 
@@ -128,6 +129,7 @@ src/
 ├── lib/
 │   ├── kokoro.ts            # Model loader, WebGPU probe, WASM fallback
 │   ├── kokoro-assets.ts     # Pages-hosted q8 asset routing + HF fallback
+│   ├── kokoro-multilingual.ts # ephone + direct Kokoro model path for es/fr/it/pt-BR/hi
 │   ├── kokoro-timestamps.ts # Timestamped Kokoro loader and word cue alignment
 │   ├── kokoro-worker.ts     # Web Worker client interface
 │   ├── supertonic.ts        # Supertonic pipeline loader and voice metadata
@@ -163,7 +165,7 @@ The deploy script builds `dist/`, syncs the Pages-hosted Kokoro q8 model assets 
 
 ## Voice Catalog
 
-28 voices spanning American and British English, graded A through F+:
+41 Kokoro voices spanning American English, British English, Spanish, French, Hindi, Italian, and Brazilian Portuguese. English voices keep the detailed quality grades from Kokoro's VOICES metadata:
 
 | Grade | Voices |
 |---|---|
@@ -178,6 +180,16 @@ The deploy script builds `dist/`, syncs the Pages-hosted Kokoro q8 model assets 
 | D- | Santa |
 | F+ | Adam |
 
+Multilingual voices:
+
+| Language | Voices |
+|---|---|
+| Spanish | Dora, Alex, Santa |
+| French | Siwis |
+| Hindi | Alpha, Beta, Omega, Psi |
+| Italian | Sara, Nicola |
+| Brazilian Portuguese | Dora, Alex, Santa |
+
 ## Model Details
 
 | Attribute | Value |
@@ -188,7 +200,7 @@ The deploy script builds `dist/`, syncs the Pages-hosted Kokoro q8 model assets 
 | Sample rate | 24,000 Hz |
 | WebGPU dtype | fp32 (~326 MB, HF-hosted) |
 | WASM dtype | q8 (~92 MB, Pages-hosted) |
-| Languages | English (US + British) |
+| Languages | English (US + British), Spanish, French, Hindi, Italian, Brazilian Portuguese |
 | License | Apache-2.0 |
 
 Supertonic is available as a separate English speed engine: 66M parameters, 10 voices, 44,100 Hz output, HF-hosted fp32 ONNX assets, OpenRAIL license.
@@ -199,7 +211,6 @@ Word timestamps are available as an opt-in Kokoro mode using `onnx-community/Kok
 
 Planned features (see [ROADMAP.md](ROADMAP.md) for details):
 
-- Multilingual Kokoro pack (es/fr/it/pt/hi)
 - Additional engine support (KittenTTS, Piper)
 - Transformers.js v4 migration for WebGPU speedups
 

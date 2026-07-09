@@ -5,14 +5,38 @@ export type VoiceId =
   | 'am_echo' | 'am_eric' | 'am_fenrir' | 'am_michael' | 'am_onyx' | 'am_santa'
   | 'bf_alice' | 'bf_emma' | 'bf_isabella' | 'bf_lily'
   | 'bm_daniel' | 'bm_fable' | 'bm_george' | 'bm_lewis'
+  | 'ef_dora' | 'em_alex' | 'em_santa'
+  | 'ff_siwis'
+  | 'hf_alpha' | 'hf_beta' | 'hm_omega' | 'hm_psi'
+  | 'if_sara' | 'im_nicola'
+  | 'pf_dora' | 'pm_alex' | 'pm_santa'
+
+export type KokoroLocale = 'en-us' | 'en-gb' | 'es' | 'fr' | 'it' | 'pt-br' | 'hi'
+
+export type KokoroLanguage = {
+  id: KokoroLocale
+  label: string
+  phonemeLanguage: 'en-us' | 'en' | 'es' | 'fr' | 'it' | 'pt-BR' | 'hi'
+  previewText: string
+}
 
 export type Voice = {
   id: VoiceId
   name: string
-  locale: 'en-us' | 'en-gb'
+  locale: KokoroLocale
   gender: 'Female' | 'Male'
   grade: string
 }
+
+export const KOKORO_LANGUAGES: KokoroLanguage[] = [
+  { id: 'en-us', label: 'English US', phonemeLanguage: 'en-us', previewText: 'This is how I sound.' },
+  { id: 'en-gb', label: 'English British', phonemeLanguage: 'en', previewText: 'This is how I sound.' },
+  { id: 'es', label: 'Spanish', phonemeLanguage: 'es', previewText: 'Hola, asi suena mi voz.' },
+  { id: 'fr', label: 'French', phonemeLanguage: 'fr', previewText: 'Bonjour, voici ma voix.' },
+  { id: 'it', label: 'Italian', phonemeLanguage: 'it', previewText: 'Ciao, questa e la mia voce.' },
+  { id: 'pt-br', label: 'Portuguese BR', phonemeLanguage: 'pt-BR', previewText: 'Ola, esta e a minha voz.' },
+  { id: 'hi', label: 'Hindi', phonemeLanguage: 'hi', previewText: 'नमस्ते, यह मेरी आवाज है.' },
+]
 
 export const VOICES: Voice[] = [
   { id: 'am_adam', name: 'Adam', locale: 'en-us', gender: 'Male', grade: 'F+' },
@@ -43,4 +67,35 @@ export const VOICES: Voice[] = [
   { id: 'bm_fable', name: 'Fable', locale: 'en-gb', gender: 'Male', grade: 'C' },
   { id: 'bm_george', name: 'George', locale: 'en-gb', gender: 'Male', grade: 'C' },
   { id: 'bm_lewis', name: 'Lewis', locale: 'en-gb', gender: 'Male', grade: 'D+' },
+  { id: 'ef_dora', name: 'Dora', locale: 'es', gender: 'Female', grade: 'C' },
+  { id: 'em_alex', name: 'Alex', locale: 'es', gender: 'Male', grade: 'C' },
+  { id: 'em_santa', name: 'Santa', locale: 'es', gender: 'Male', grade: 'C' },
+  { id: 'ff_siwis', name: 'Siwis', locale: 'fr', gender: 'Female', grade: 'B-' },
+  { id: 'hf_alpha', name: 'Alpha', locale: 'hi', gender: 'Female', grade: 'C' },
+  { id: 'hf_beta', name: 'Beta', locale: 'hi', gender: 'Female', grade: 'C' },
+  { id: 'hm_omega', name: 'Omega', locale: 'hi', gender: 'Male', grade: 'C' },
+  { id: 'hm_psi', name: 'Psi', locale: 'hi', gender: 'Male', grade: 'C' },
+  { id: 'if_sara', name: 'Sara', locale: 'it', gender: 'Female', grade: 'C' },
+  { id: 'im_nicola', name: 'Nicola', locale: 'it', gender: 'Male', grade: 'C' },
+  { id: 'pf_dora', name: 'Dora', locale: 'pt-br', gender: 'Female', grade: 'C' },
+  { id: 'pm_alex', name: 'Alex', locale: 'pt-br', gender: 'Male', grade: 'C' },
+  { id: 'pm_santa', name: 'Santa', locale: 'pt-br', gender: 'Male', grade: 'C' },
 ]
+
+export const ENGLISH_KOKORO_LOCALES = new Set<KokoroLocale>(['en-us', 'en-gb'])
+export const SELF_HOSTED_KOKORO_VOICE_IDS = new Set<VoiceId>(
+  VOICES.filter((voice) => ENGLISH_KOKORO_LOCALES.has(voice.locale)).map((voice) => voice.id),
+)
+
+export function kokoroLanguageForLocale(locale: KokoroLocale): KokoroLanguage {
+  return KOKORO_LANGUAGES.find((language) => language.id === locale) ?? KOKORO_LANGUAGES[0]
+}
+
+export function kokoroLanguageForVoice(voiceId: string): KokoroLanguage {
+  const voice = VOICES.find((candidate) => candidate.id === voiceId)
+  return kokoroLanguageForLocale(voice?.locale ?? 'en-us')
+}
+
+export function isEnglishKokoroLocale(locale: KokoroLocale): boolean {
+  return ENGLISH_KOKORO_LOCALES.has(locale)
+}

@@ -1,4 +1,4 @@
-import { VOICES } from './voices.ts'
+import { SELF_HOSTED_KOKORO_VOICE_IDS } from './voices.ts'
 
 export const KOKORO_MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX'
 export const KOKORO_SAMPLE_RATE = 24000
@@ -13,7 +13,7 @@ const hostedModelPaths = new Set([
   'tokenizer_config.json',
   'onnx/model_quantized.onnx',
 ])
-const hostedVoicePaths = new Set(VOICES.map((voice) => `voices/${voice.id}.bin`))
+const hostedVoicePaths = new Set([...SELF_HOSTED_KOKORO_VOICE_IDS].map((voiceId) => `voices/${voiceId}.bin`))
 const maxHfRetries = 2
 const defaultRetryDelays = [1_000, 2_500]
 const maxRetryDelayMs = 60_000

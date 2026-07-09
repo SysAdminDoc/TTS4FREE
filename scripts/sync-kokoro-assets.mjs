@@ -13,8 +13,12 @@ const targetRoot = resolve(repoRoot, process.argv[2] ?? join('dist', 'models', m
 const distRoot = resolve(repoRoot, 'dist')
 const cacheRoot = resolve(repoRoot, 'node_modules', '.cache', 'bettertts-model-assets', modelId)
 const voiceSourceRoot = resolve(repoRoot, 'node_modules', 'kokoro-js', 'voices')
-const voiceIds = [...readFileSync(join(repoRoot, 'src', 'lib', 'voices.ts'), 'utf8').matchAll(/\{\s*id: '([^']+)'/g)]
-  .map((match) => match[1])
+const voiceEntries = [...readFileSync(join(repoRoot, 'src', 'lib', 'voices.ts'), 'utf8')
+  .matchAll(/\{\s*id: '([^']+)'.*?locale: '([^']+)'/g)]
+  .map((match) => ({ id: match[1], locale: match[2] }))
+const voiceIds = voiceEntries
+  .filter((voice) => voice.locale === 'en-us' || voice.locale === 'en-gb')
+  .map((voice) => voice.id)
 
 const remoteAssets = [
   { path: 'config.json', size: 44 },
@@ -27,8 +31,8 @@ if (!targetRoot.startsWith(`${distRoot}${sep}`)) {
   console.error(`Refusing to sync Kokoro assets outside dist/: ${targetRoot}`)
   process.exit(1)
 }
-if (voiceIds.length !== 28) {
-  console.error(`Expected 28 wired Kokoro voices, found ${voiceIds.length}`)
+if (voiceEntries.length !== 41 || voiceIds.length !== 28) {
+  console.error(`Expected 41 wired Kokoro voices with 28 self-hosted English bins, found ${voiceEntries.length}/${voiceIds.length}`)
   process.exit(1)
 }
 

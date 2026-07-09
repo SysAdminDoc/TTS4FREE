@@ -26,6 +26,7 @@ import './App.css'
 import { type AudioFormat, encodeAudio, formatExtension, mixBgm, opusSupported, shiftPitch } from './lib/encode.ts'
 import { KOKORO_SAMPLE_RATE, type ProgressInfo, type RawAudioLike, loadKokoro, probeWebGpu, resetKokoroSession } from './lib/kokoro.ts'
 import { loadTimestampedKokoro, resetTimestampedKokoroSession, synthesizeTimestampedKokoro } from './lib/kokoro-timestamps.ts'
+import { needsDirectKokoroPath, synthesizeDirectKokoro } from './lib/kokoro-multilingual.ts'
 import { generateWorker, loadKokoroWorker, resetWorker } from './lib/kokoro-worker.ts'
 import { type VoiceMixEntry, blendVoiceBins, fetchVoiceBin, formatMixFormula } from './lib/voice-mix.ts'
 import { type ClipRecord, clearLibrary, deleteClip, enforceLibraryCap, getClipBlob, listClips, saveClip } from './lib/library.ts'
@@ -34,7 +35,7 @@ import { type QueueJob, deleteJob, getChunkBlob, jobProgress, listJobs, saveChun
 import { parseEpub } from './lib/epub.ts'
 import { SUPERTONIC_DEFAULT_STEPS, SUPERTONIC_SAMPLE_RATE, SUPERTONIC_VOICES, type SupertonicVoiceId, clampSupertonicSpeed, loadSupertonic, synthesizeSupertonic } from './lib/supertonic.ts'
 import { type CleanupOptions, DEFAULT_CLEANUP, PAUSE_TAG, cleanupText, formatBytes, parseDialogLines, parsePauseTags, slugify, splitInput, splitIntoSentences } from './lib/text.ts'
-import { VOICES } from './lib/voices.ts'
+import { KOKORO_LANGUAGES, VOICES, isEnglishKokoroLocale, kokoroLanguageForLocale, kokoroLanguageForVoice, type KokoroLocale } from './lib/voices.ts'
 import { type Cue, toSRT, toVTT } from './lib/subtitles.ts'
 import { concatFloat32Arrays, encodeWav } from './lib/wav.ts'
 import { speakBrowser } from './lib/webspeech.ts'
@@ -72,10 +73,10 @@ Pick a voice from the panel on the right, then click Generate audio. The Kokoro 
 Download as WAV or MP3 when you're done.`
 
 const MODEL_ROWS = [
-  ['Kokoro 82M', 'Kokoro local', '82M', 'English US / GB', 'Ready'],
+  ['Kokoro 82M', 'Kokoro local', '82M', 'EN / ES / FR / HI / IT / PT', 'Ready'],
   ['Kokoro timestamped', 'Kokoro local', '82M', 'Word-level timings', 'Opt-in'],
   ['Supertonic', 'Transformers.js', '66M', 'English speed engine', 'Ready'],
-  ['Kokoro multilingual', 'Planned local pack', '137M+', 'JP / ZH / ES / FR / HI / IT / PT', 'Next'],
+  ['Kokoro multilingual', 'ephone + HF voice bins', '82M', 'ES / FR / HI / IT / PT', 'Ready'],
   ['Browser voices', 'Web Speech', 'Native', 'Device voices', 'Fallback'],
   ['Piper packs', 'Static model packs', 'Varies', 'Optional', 'Later'],
 ]
@@ -304,7 +305,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
 function App() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
   const [engine, setEngine] = useState<Engine>('kokoro')
-  const [locale, setLocale] = useState<'en-us' | 'en-gb'>('en-us')
+  const [locale, setLocale] = useState<KokoroLocale>('en-us')
   const [voiceId, setVoiceId] = useState('af_heart')
   const [supertonicVoiceId, setSupertonicVoiceId] = useState<SupertonicVoiceId>('F1')
   const [supertonicSteps, setSupertonicSteps] = useState(SUPERTONIC_DEFAULT_STEPS)
@@ -386,6 +387,9 @@ function App() {
   const availableVoices = useMemo(() => VOICES.filter((voice) => voice.locale === locale), [locale])
   const selectedVoice = VOICES.find((voice) => voice.id === voiceId) ?? VOICES[0]
   const selectedSupertonicVoice = SUPERTONIC_VOICES.find((voice) => voice.id === supertonicVoiceId) ?? SUPERTONIC_VOICES[0]
+  const selectedKokoroLanguage = kokoroLanguageForLocale(locale)
+  const englishKokoro = isEnglishKokoroLocale(locale)
+  const blendableVoices = useMemo(() => VOICES.filter((voice) => isEnglishKokoroLocale(voice.locale)), [])
   const kokoroRuntimeLabel = runtimeLabel.startsWith('Supertonic') ? (forceWasm ? 'WebAssembly q8' : 'WebGPU fp32 / WebAssembly q8') : runtimeLabel
   const lineNumbers = useMemo(() => text.split(/\r?\n/).map((_, index) => index + 1), [text])
   const usableText = text.slice(0, MAX_TEXT_CHARS)
@@ -433,6 +437,13 @@ function App() {
       setVoiceId(availableVoices[0]?.id ?? 'af_heart')
     }
   }, [availableVoices, voiceId])
+
+  useEffect(() => {
+    if (!englishKokoro) {
+      if (wordTimestamps) setWordTimestamps(false)
+      if (voiceMixEnabled) setVoiceMixEnabled(false)
+    }
+  }, [englishKokoro, voiceMixEnabled, wordTimestamps])
 
   function refreshStorageEstimate() {
     navigator.storage
@@ -578,7 +589,7 @@ function App() {
 
   async function ensureKokoroEngine(
     onProgress: (info: ProgressInfo) => void,
-    opts: { wordTimestamps?: boolean } = { wordTimestamps },
+    opts: { wordTimestamps?: boolean } = { wordTimestamps: wordTimestamps && englishKokoro },
   ): Promise<LoadedEngine> {
     if (opts.wordTimestamps) {
       const tts = await loadTimestampedKokoro(onProgress)
@@ -607,7 +618,8 @@ function App() {
     }
     const tts = await loadKokoro(onProgress)
     return {
-      synthesize: async (text, voice, spd) => {
+      synthesize: async (text, voice, spd, bin) => {
+        if (needsDirectKokoroPath(voice, bin)) return synthesizeDirectKokoro(tts, text, voice, spd, bin)
         const audio = (await tts.generate(text, { voice: voice as never, speed: spd })) as RawAudioLike
         return audio.audio ? { samples: audio.audio, sampleRate: KOKORO_SAMPLE_RATE } : null
       },
@@ -836,7 +848,7 @@ function App() {
 
   async function generateKokoro(chunks: string[]) {
     let mixBin: Float32Array | undefined
-    if (voiceMixEnabled && voiceMixEntries.length >= 2) {
+    if (englishKokoro && voiceMixEnabled && voiceMixEntries.length >= 2) {
       setStatus('Loading voice blend…')
       const bins = await Promise.all(
         voiceMixEntries.map(async (e) => ({
@@ -980,7 +992,7 @@ function App() {
         return
       }
       const engineImpl = await ensureEngine(() => {})
-      const preview = await engineImpl.synthesize('This is how I sound.', id, 1)
+      const preview = await engineImpl.synthesize(kokoroLanguageForVoice(id).previewText, id, 1)
       if (preview) {
         const blob = new Blob([encodeWav(preview.samples, preview.sampleRate)], { type: 'audio/wav' })
         const url = URL.createObjectURL(blob)
@@ -1118,6 +1130,7 @@ function App() {
       title: usableText.slice(0, 50).replace(/\s+/g, ' ').trim(),
       createdAt: Date.now(),
       voice: selectedVoice.id,
+      language: locale,
       speed,
       format: audioFormat,
       bitrate: mp3Bitrate,
@@ -1298,6 +1311,7 @@ function App() {
         title: file.name.replace(/\.epub$/i, ''),
         createdAt: Date.now(),
         voice: selectedVoice.id,
+        language: locale,
         speed,
         format: audioFormat,
         bitrate: mp3Bitrate,
@@ -1633,7 +1647,7 @@ function App() {
                   <span>{engine === 'kokoro' ? <Check size={17} aria-hidden="true" /> : null}</span>
                   <strong>Kokoro local</strong>
                   <small>
-                    {kokoroRuntimeLabel}. WAV export.{kokoroRuntimeLabel === 'WebAssembly q8' ? ' Pages-hosted model.' : ' HF model.'}{modelCached ? ' Model cached.' : ''}
+                    {selectedKokoroLanguage.label}. {kokoroRuntimeLabel}. WAV export.{kokoroRuntimeLabel === 'WebAssembly q8' ? ' Pages-hosted English model.' : ' HF model.'}{modelCached ? ' Model cached.' : ''}
                     {storageEstimate ? ` ${storageEstimate}.` : ''}
                   </small>
                 </button>
@@ -1663,9 +1677,10 @@ function App() {
                 <label className="control-label" htmlFor="locale">
                   Language
                 </label>
-                <select id="locale" value={locale} onChange={(event) => setLocale(event.target.value as 'en-us' | 'en-gb')}>
-                  <option value="en-us">English US</option>
-                  <option value="en-gb">English British</option>
+                <select id="locale" value={locale} onChange={(event) => setLocale(event.target.value as KokoroLocale)}>
+                  {KOKORO_LANGUAGES.map((language) => (
+                    <option value={language.id} key={language.id}>{language.label}</option>
+                  ))}
                 </select>
 
                 <label className="control-label" htmlFor="voice">
@@ -1680,7 +1695,7 @@ function App() {
                 </select>
 
                 <div className="voice-buttons" aria-label="Favorite voices">
-                  {availableVoices.slice(0, 6).map((voice) => (
+                    {availableVoices.slice(0, 6).map((voice) => (
                     <div className="voice-btn-row" key={voice.id}>
                       <button
                         type="button"
@@ -1920,8 +1935,8 @@ function App() {
                     <label className="toggle-row">
                       <input
                         type="checkbox"
-                        checked={wordTimestamps}
-                        disabled={isGenerating}
+                        checked={wordTimestamps && englishKokoro}
+                        disabled={isGenerating || !englishKokoro}
                         onChange={(event) => {
                           setWordTimestamps(event.target.checked)
                           resetTimestampedKokoroSession()
@@ -1929,7 +1944,7 @@ function App() {
                       />
                       <span>
                         Word timestamps
-                        <small>Opt in to the timestamped q8 model for word-level SRT/VTT and follow-along highlighting.</small>
+                        <small>{englishKokoro ? 'Opt in to the timestamped q8 model for word-level SRT/VTT and follow-along highlighting.' : 'Available for English Kokoro voices only.'}</small>
                       </span>
                     </label>
                   </>
@@ -1955,7 +1970,7 @@ function App() {
                           onChange={(e) => setSpeakerMap((prev) => ({ ...prev, [name!]: e.target.value }))}
                         >
                           <option value="">Default ({selectedVoice.name})</option>
-                          {VOICES.map((v) => (
+                          {availableVoices.map((v) => (
                             <option value={v.id} key={v.id}>
                               {v.name} ({v.gender})
                             </option>
@@ -1966,7 +1981,7 @@ function App() {
                   </div>
                 ) : null}
 
-                {engine === 'kokoro' ? (
+                {engine === 'kokoro' && englishKokoro ? (
                   <label className="toggle-row">
                     <input
                       type="checkbox"
@@ -1980,7 +1995,7 @@ function App() {
                   </label>
                 ) : null}
 
-                {voiceMixEnabled && engine === 'kokoro' ? (
+                {voiceMixEnabled && engine === 'kokoro' && englishKokoro ? (
                   <div className="speaker-map">
                     {voiceMixEntries.map((entry, idx) => (
                       <div className="speaker-row" key={idx}>
@@ -1993,7 +2008,7 @@ function App() {
                           }
                           aria-label={`Mix voice ${idx + 1}`}
                         >
-                          {VOICES.map((v) => (
+                          {blendableVoices.map((v) => (
                             <option value={v.id} key={v.id}>
                               {v.name} ({v.gender})
                             </option>
@@ -2170,7 +2185,7 @@ function App() {
         <section className="technical-note" id="docs">
           <span>How it works</span>
           <p>
-            Kokoro 82M and Supertonic run locally in your browser via Transformers.js. Kokoro base WASM q8 loads from this site first; timestamped Kokoro, Supertonic, and Kokoro WebGPU fp32 remain HF-hosted. No server involved.
+            Kokoro 82M and Supertonic run locally in your browser via Transformers.js. English Kokoro WASM q8 loads from this site first; multilingual voice bins, timestamped Kokoro, Supertonic, and Kokoro WebGPU fp32 remain HF-hosted. No server involved.
           </p>
           <a href="https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX" target="_blank" rel="noreferrer">
             Model card <ExternalLink size={15} aria-hidden="true" />
@@ -2207,7 +2222,7 @@ function App() {
                 ))}
               </tbody>
             </table>
-            <p>English Kokoro voices are wired now. Multilingual voices are listed as the next static model-pack track.</p>
+            <p>Kokoro voices are wired for English, Spanish, French, Hindi, Italian, and Brazilian Portuguese. Japanese and Chinese remain unwired until a browser-safe G2P path is available.</p>
           </div>
 
           <div className="hosting-panel">
