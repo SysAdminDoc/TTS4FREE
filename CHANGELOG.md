@@ -7,6 +7,7 @@
 
 ### Changed
 - Split EPUB parsing and multilingual Kokoro runtime paths into on-demand chunks; the production worker bundle now stays small on first load and the fflate static/dynamic import warning is gone.
+- Migrated persistent queue jobs to an engine-aware schema so Kokoro, Supertonic, and KittenTTS jobs preserve their voice/model/settings and v1 Kokoro jobs migrate on read.
 
 ## v0.12.0 - 2026-07-09
 

@@ -2,6 +2,7 @@ import type { AudioFormat } from './encode.ts'
 import type { KokoroLocale, VoiceId } from './voices.ts'
 
 export type ChunkStatus = 'pending' | 'generating' | 'done' | 'failed'
+export type QueueEngine = 'kokoro' | 'supertonic' | 'kitten'
 
 export type QueueChunk = {
   index: number
@@ -14,19 +15,23 @@ export type QueueChunk = {
 }
 
 export type QueueJob = {
+  schemaVersion: 2
   id: string
   title: string
   createdAt: number
+  engine: QueueEngine
   voice: VoiceId | string
   language?: KokoroLocale
   speed: number
   format: AudioFormat
   bitrate: number
+  supertonicSteps?: number
+  kittenModel?: 'nano' | 'micro' | 'mini'
   chunks: QueueChunk[]
 }
 
 const DB_NAME = 'bettertts-queue'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const JOBS_STORE = 'jobs'
 const CHUNKS_STORE = 'chunks'
 
@@ -71,7 +76,7 @@ function txDone(tx: IDBTransaction): Promise<void> {
 export async function saveJob(job: QueueJob): Promise<void> {
   const db = await openDB()
   const tx = db.transaction(JOBS_STORE, 'readwrite')
-  tx.objectStore(JOBS_STORE).put(job)
+  tx.objectStore(JOBS_STORE).put(migrateQueueJob(job))
   await txDone(tx)
 }
 
@@ -81,7 +86,7 @@ export async function listJobs(): Promise<QueueJob[]> {
     const tx = db.transaction(JOBS_STORE, 'readonly')
     const req = tx.objectStore(JOBS_STORE).getAll()
     req.onsuccess = () => {
-      const jobs = req.result as QueueJob[]
+      const jobs = (req.result as unknown[]).map(migrateQueueJob)
       jobs.sort((a, b) => b.createdAt - a.createdAt)
       resolve(jobs)
     }
@@ -94,7 +99,7 @@ export async function getJob(id: string): Promise<QueueJob | null> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(JOBS_STORE, 'readonly')
     const req = tx.objectStore(JOBS_STORE).get(id)
-    req.onsuccess = () => resolve((req.result as QueueJob) ?? null)
+    req.onsuccess = () => resolve(req.result ? migrateQueueJob(req.result) : null)
     req.onerror = () => reject(req.error)
   })
 }
@@ -140,4 +145,38 @@ export function jobProgress(job: QueueJob): { done: number; total: number; pct: 
 
 export function nextPendingChunk(job: QueueJob): QueueChunk | null {
   return job.chunks.find((c) => c.status === 'pending') ?? null
+}
+
+export function migrateQueueJob(raw: unknown): QueueJob {
+  const job = raw as Partial<QueueJob> & { engine?: string; schemaVersion?: number }
+  const engine: QueueEngine = job.engine === 'supertonic' || job.engine === 'kitten' ? job.engine : 'kokoro'
+  return {
+    schemaVersion: 2,
+    id: String(job.id ?? crypto.randomUUID()),
+    title: String(job.title ?? 'Untitled job'),
+    createdAt: typeof job.createdAt === 'number' ? job.createdAt : Date.now(),
+    engine,
+    voice: job.voice ?? 'af_heart',
+    language: engine === 'kokoro' ? job.language : undefined,
+    speed: typeof job.speed === 'number' ? job.speed : 1,
+    format: job.format ?? 'wav',
+    bitrate: typeof job.bitrate === 'number' ? job.bitrate : 128,
+    supertonicSteps: engine === 'supertonic' ? job.supertonicSteps : undefined,
+    kittenModel: engine === 'kitten' ? job.kittenModel ?? 'nano' : undefined,
+    chunks: Array.isArray(job.chunks) ? job.chunks.map((chunk, index) => migrateQueueChunk(chunk, index)) : [],
+  }
+}
+
+function migrateQueueChunk(raw: unknown, index: number): QueueChunk {
+  const chunk = raw as Partial<QueueChunk>
+  const status = chunk.status === 'generating' || chunk.status === 'done' || chunk.status === 'failed' ? chunk.status : 'pending'
+  return {
+    index: typeof chunk.index === 'number' ? chunk.index : index,
+    text: String(chunk.text ?? ''),
+    status,
+    chapterTitle: chunk.chapterTitle,
+    chapterIndex: chunk.chapterIndex,
+    blobKey: chunk.blobKey,
+    error: chunk.error,
+  }
 }

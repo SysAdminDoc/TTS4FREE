@@ -162,6 +162,14 @@ footer button {
     linear-gradient(180deg, var(--surface-1), var(--surface-0));
 }
 
+.queue-disabled-note {
+  display: block;
+  margin-top: -4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .editor-column {
   display: flex;
   flex-direction: column;

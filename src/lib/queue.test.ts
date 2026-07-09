@@ -1,12 +1,14 @@
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { type QueueJob, deleteJob, getChunkBlob, getJob, jobProgress, listJobs, nextPendingChunk, saveChunkBlob, saveJob } from './queue.ts'
+import { type QueueJob, deleteJob, getChunkBlob, getJob, jobProgress, listJobs, migrateQueueJob, nextPendingChunk, saveChunkBlob, saveJob } from './queue.ts'
 
 function makeJob(id: string, chunks = 3): QueueJob {
   return {
+    schemaVersion: 2,
     id,
     title: `Job ${id}`,
     createdAt: Date.now(),
+    engine: 'kokoro',
     voice: 'af_heart',
     speed: 1,
     format: 'wav',
@@ -31,6 +33,8 @@ describe('queue', () => {
     const retrieved = await getJob('q1')
     expect(retrieved).not.toBeNull()
     expect(retrieved!.title).toBe('Job q1')
+    expect(retrieved!.schemaVersion).toBe(2)
+    expect(retrieved!.engine).toBe('kokoro')
     expect(retrieved!.chunks.length).toBe(3)
   })
 
@@ -92,5 +96,41 @@ describe('queue', () => {
     const job = makeJob('q7')
     for (const c of job.chunks) c.status = 'done'
     expect(nextPendingChunk(job)).toBeNull()
+  })
+
+  it('migrates v1 Kokoro-only jobs without losing chunks', () => {
+    const legacy = {
+      id: 'legacy',
+      title: 'Legacy job',
+      createdAt: 100,
+      voice: 'af_bella',
+      language: 'en-US',
+      speed: 1.1,
+      format: 'mp3',
+      bitrate: 160,
+      chunks: [{ index: 0, text: 'Old chunk.', status: 'generating' }],
+    }
+    const migrated = migrateQueueJob(legacy)
+    expect(migrated.schemaVersion).toBe(2)
+    expect(migrated.engine).toBe('kokoro')
+    expect(migrated.voice).toBe('af_bella')
+    expect(migrated.language).toBe('en-US')
+    expect(migrated.chunks[0].status).toBe('generating')
+  })
+
+  it('persists engine-specific queue settings', async () => {
+    const job: QueueJob = {
+      ...makeJob('supertonic'),
+      engine: 'supertonic',
+      voice: 'F2',
+      language: undefined,
+      supertonicSteps: 7,
+    }
+    await saveJob(job)
+    const retrieved = await getJob('supertonic')
+    expect(retrieved!.engine).toBe('supertonic')
+    expect(retrieved!.voice).toBe('F2')
+    expect(retrieved!.supertonicSteps).toBe(7)
+    expect(retrieved!.language).toBeUndefined()
   })
 })

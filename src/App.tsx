@@ -39,7 +39,7 @@ import {
   prefetchKokoroQ8Pack,
   readModelCacheStatus,
 } from './lib/model-cache.ts'
-import { type QueueJob, deleteJob, getChunkBlob, jobProgress, listJobs, saveChunkBlob, saveJob } from './lib/queue.ts'
+import { type QueueEngine, type QueueJob, deleteJob, getChunkBlob, jobProgress, listJobs, saveChunkBlob, saveJob } from './lib/queue.ts'
 import {
   KITTEN_DEFAULT_MODEL,
   KITTEN_MODELS,
@@ -65,6 +65,12 @@ const EMPTY_VTT_URL = 'data:text/vtt;charset=utf-8,WEBVTT%0A%0A'
 
 type Engine = 'kokoro' | 'supertonic' | 'kitten' | 'browser'
 type Theme = 'dark' | 'light'
+
+type QueueSourceChunk = {
+  text: string
+  chapterTitle?: string
+  chapterIndex?: number
+}
 
 type AudioResult = {
   id: string
@@ -122,6 +128,12 @@ function cacheStatusText(row: EngineCacheStatus, supported: boolean): string {
   const size = row.sizeBytes > 0 ? formatBytes(row.sizeBytes) : 'size unknown'
   const unknown = row.unknownSizeCount > 0 ? ` + ${row.unknownSizeCount} unknown` : ''
   return `${row.entryCount} ${fileLabel} - ${size}${unknown}`
+}
+
+function queueEngineText(job: QueueJob): string {
+  if (job.engine === 'supertonic') return `Supertonic - ${job.supertonicSteps ?? SUPERTONIC_DEFAULT_STEPS} steps`
+  if (job.engine === 'kitten') return `KittenTTS - ${(job.kittenModel ?? KITTEN_DEFAULT_MODEL).toUpperCase()}`
+  return `Kokoro - ${job.language ?? 'English US'}`
 }
 
 async function getDurationLabel(blob: Blob) {
@@ -435,6 +447,11 @@ function App() {
   const lineCount = lineNumbers.length
   const cacheRows = modelCache?.engines ?? []
   const modelCached = (cacheRows.find((row) => row.id === 'kokoro')?.entryCount ?? 0) > 0
+  const queueDisabledReason = engine === 'browser'
+    ? 'Queue export is unavailable for Browser voices.'
+    : !usableText.trim()
+      ? 'Enter text before queueing.'
+      : null
   const engineStatus =
     engine === 'kokoro'
       ? `${selectedKokoroLanguage.label} - ${kokoroRuntimeLabel}${modelCached ? ' - cached' : ''}${storageEstimate ? ` - ${storageEstimate}` : ''}`
@@ -673,6 +690,10 @@ function App() {
     synthesize: (text: string, voice: string, speed: number, voiceBin?: Float32Array) => Promise<SynthesizedAudio | null>
   }
 
+  type LoadedQueueEngine = LoadedEngine & {
+    sampleRate: number
+  }
+
   async function ensureKokoroEngine(
     onProgress: (info: ProgressInfo) => void,
     opts: { wordTimestamps?: boolean } = { wordTimestamps: wordTimestamps && englishKokoro },
@@ -731,6 +752,34 @@ function App() {
       }
     }
     return ensureKokoroEngine(onProgress)
+  }
+
+  async function ensureQueueEngine(job: QueueJob, onProgress: (info: ProgressInfo) => void): Promise<LoadedQueueEngine> {
+    if (job.engine === 'supertonic') {
+      const tts = await loadSupertonic(onProgress)
+      setRuntimeLabel('Supertonic fp32')
+      return {
+        sampleRate: SUPERTONIC_SAMPLE_RATE,
+        synthesize: (text, voice, spd) =>
+          synthesizeSupertonic(tts, text, voice as SupertonicVoiceId, spd, job.supertonicSteps ?? SUPERTONIC_DEFAULT_STEPS),
+      }
+    }
+
+    if (job.engine === 'kitten') {
+      setRuntimeLabel('KittenTTS WebGPU')
+      return {
+        sampleRate: KITTEN_SAMPLE_RATE,
+        synthesize: (text, voice, spd) =>
+          synthesizeKitten(text, voice as KittenVoiceId, spd, job.kittenModel ?? KITTEN_DEFAULT_MODEL, (stage) => {
+            setStatus(stage)
+          }),
+      }
+    }
+
+    return {
+      sampleRate: KOKORO_SAMPLE_RATE,
+      ...(await ensureKokoroEngine(onProgress, { wordTimestamps: false })),
+    }
   }
 
   async function runSynthesis(jobs: SynthJob[], opts: { zipPrefix: string; successMessage?: string }) {
@@ -1240,20 +1289,47 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  function createQueueJob(title: string, chunks: QueueSourceChunk[]): QueueJob | null {
+    if (engine === 'browser') return null
+    const queueEngine = engine as QueueEngine
+    return {
+      schemaVersion: 2,
+      id: crypto.randomUUID(),
+      title,
+      createdAt: Date.now(),
+      engine: queueEngine,
+      voice: queueEngine === 'kokoro'
+        ? selectedVoice.id
+        : queueEngine === 'supertonic'
+          ? selectedSupertonicVoice.id
+          : selectedKittenVoice.id,
+      language: queueEngine === 'kokoro' ? locale : undefined,
+      speed,
+      format: audioFormat,
+      bitrate: mp3Bitrate,
+      supertonicSteps: queueEngine === 'supertonic' ? supertonicSteps : undefined,
+      kittenModel: queueEngine === 'kitten' ? kittenModelSize : undefined,
+      chunks: chunks.map((chunk, index) => ({
+        index,
+        text: chunk.text,
+        chapterTitle: chunk.chapterTitle,
+        chapterIndex: chunk.chapterIndex,
+        status: 'pending',
+      })),
+    }
+  }
+
   async function queueCurrentText() {
     if (!usableText.trim()) return
     const chunks = splitInput(cleanupText(usableText, cleanup), separateLines)
     if (chunks.length === 0) return
-    const job: QueueJob = {
-      id: crypto.randomUUID(),
-      title: usableText.slice(0, 50).replace(/\s+/g, ' ').trim(),
-      createdAt: Date.now(),
-      voice: selectedVoice.id,
-      language: locale,
-      speed,
-      format: audioFormat,
-      bitrate: mp3Bitrate,
-      chunks: chunks.map((text, i) => ({ index: i, text, status: 'pending' as const })),
+    const job = createQueueJob(
+      usableText.slice(0, 50).replace(/\s+/g, ' ').trim(),
+      chunks.map((text) => ({ text })),
+    )
+    if (!job) {
+      showToast({ tone: 'warn', message: 'Browser voices can play immediately but cannot be queued for file export.' })
+      return
     }
     await saveJob(job)
     setQueueJobs((prev) => [job, ...prev])
@@ -1275,7 +1351,7 @@ function App() {
       const onProgress = (info: { status?: string; file?: string; loaded?: number; total?: number }) => {
         if (info.status === 'ready') setStatus('Model ready')
       }
-      const { synthesize } = await ensureKokoroEngine(onProgress, { wordTimestamps: false })
+      const { synthesize, sampleRate } = await ensureQueueEngine(job, onProgress)
 
       for (const chunk of job.chunks) {
         if (abortRef.current) break
@@ -1294,7 +1370,7 @@ function App() {
           }
           if (parts.length > 0) {
             const raw = concatFloat32Arrays(parts)
-            const blob = await encodeAudio(raw, KOKORO_SAMPLE_RATE, job.format, job.bitrate)
+            const blob = await encodeAudio(raw, sampleRate, job.format, job.bitrate)
             await saveChunkBlob(jobId, chunk.index, blob)
             chunk.status = 'done'
           } else {
@@ -1426,22 +1502,17 @@ function App() {
         showToast({ tone: 'warn', message: 'No readable text found in this EPUB.' })
         return
       }
-      const job: QueueJob = {
-        id: crypto.randomUUID(),
-        title: file.name.replace(/\.epub$/i, ''),
-        createdAt: Date.now(),
-        voice: selectedVoice.id,
-        language: locale,
-        speed,
-        format: audioFormat,
-        bitrate: mp3Bitrate,
-        chunks: allChunks.map((c, i) => ({
-          index: i,
-          text: c.text.slice(0, MAX_TEXT_CHARS),
-          chapterTitle: c.title,
-          chapterIndex: c.chapterIndex,
-          status: 'pending' as const,
+      const job = createQueueJob(
+        file.name.replace(/\.epub$/i, ''),
+        allChunks.map((chunk) => ({
+          text: chunk.text.slice(0, MAX_TEXT_CHARS),
+          chapterTitle: chunk.title,
+          chapterIndex: chunk.chapterIndex,
         })),
+      )
+      if (!job) {
+        showToast({ tone: 'warn', message: 'Browser voices can play EPUB text but cannot be queued for file export.' })
+        return
       }
       await saveJob(job)
       setQueueJobs((prev) => [job, ...prev])
@@ -1661,6 +1732,8 @@ function App() {
                         <div className="result-meta">
                           <span className="ready-dot" aria-hidden="true" />
                           <strong>{job.title}</strong>
+                          <span>{queueEngineText(job)}</span>
+                          <span>{job.format.toUpperCase()}</span>
                           <span>{done}/{total} chunks</span>
                           <span>{pct}%</span>
                         </div>
@@ -1684,7 +1757,12 @@ function App() {
                             </button>
                           ) : null}
                           {done === total && total > 0 ? (
-                            <button type="button" onClick={() => downloadJobM4b(job.id)} disabled={m4bExportingJobId !== null}>
+                            <button
+                              type="button"
+                              onClick={() => downloadJobM4b(job.id)}
+                              disabled={m4bExportingJobId !== null || !m4bSupported()}
+                              title={m4bSupported() ? 'Export chaptered M4B' : 'M4B export requires WebCodecs AAC support.'}
+                            >
                               {m4bExportingJobId === job.id ? <Loader2 size={16} aria-hidden="true" /> : <Download size={16} aria-hidden="true" />}
                               M4B
                             </button>
@@ -2461,12 +2539,17 @@ function App() {
                 </button>
               )}
 
-              {engine === 'kokoro' ? (
-                <button type="button" className="secondary-action" onClick={queueCurrentText} disabled={isGenerating || !usableText.trim()}>
-                  <FileText size={16} aria-hidden="true" />
-                  Queue
-                </button>
-              ) : null}
+              <button
+                type="button"
+                className="secondary-action"
+                onClick={queueCurrentText}
+                disabled={isGenerating || queueDisabledReason !== null}
+                title={queueDisabledReason ?? 'Queue current text for file export.'}
+              >
+                <FileText size={16} aria-hidden="true" />
+                Queue
+              </button>
+              {engine === 'browser' ? <small className="queue-disabled-note">Queue export is unavailable for Browser voices.</small> : null}
               <button type="button" className="secondary-action" onClick={clearOutputs}>
                 <Trash2 size={16} aria-hidden="true" />
                 Clear output
