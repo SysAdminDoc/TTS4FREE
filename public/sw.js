@@ -5,6 +5,26 @@ const CACHE_NAME = 'bettertts-shell-__BUILD_ID__'
 // require-corp, which HuggingFace's CORS headers satisfy today.
 const COEP_VALUE = /Chrome\//.test(self.navigator.userAgent) ? 'credentialless' : 'require-corp'
 
+function createShellCacheRequest(request) {
+  const url = new URL(request.url)
+  if (request.method !== 'GET') return null
+  if (url.origin !== self.location.origin) return null
+  if (url.pathname.includes('/api/') || url.pathname.includes('/models/')) return null
+
+  url.search = ''
+  url.hash = ''
+  return new Request(url.toString(), {
+    method: 'GET',
+    headers: request.headers,
+    credentials: request.credentials,
+    cache: request.cache,
+    redirect: request.redirect,
+    referrer: request.referrer,
+    referrerPolicy: request.referrerPolicy,
+    integrity: request.integrity,
+  })
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting())
 })
@@ -22,6 +42,7 @@ self.addEventListener('fetch', (event) => {
 
   if (event.request.method !== 'GET') return
   if (url.pathname.includes('/api/')) return
+  const cacheRequest = createShellCacheRequest(event.request)
 
   event.respondWith(
     fetch(event.request)
@@ -39,16 +60,16 @@ self.addEventListener('fetch', (event) => {
           headers,
         })
 
-        if (url.origin === self.location.origin && response.type === 'basic') {
+        if (cacheRequest && response.type === 'basic') {
           const copy = enhanced.clone()
           caches
             .open(CACHE_NAME)
-            .then((cache) => cache.put(event.request, copy))
+            .then((cache) => cache.put(cacheRequest, copy))
             .catch(() => {})
         }
 
         return enhanced
       })
-      .catch(() => caches.match(event.request))
+      .catch(() => caches.match(cacheRequest ?? event.request))
   )
 })

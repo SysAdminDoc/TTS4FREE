@@ -8,6 +8,7 @@
 - Fixed Opus/WebM native share metadata and ensured stream-preview audio contexts close even when later pitch, background-music, encoding, or ZIP work fails.
 - Removed share-target query/hash payloads from diagnostics location data and expanded diagnostic redaction for secret-like URL path segments.
 - Hardened premium UI accessibility with contrast-safe action tokens, real active-section navigation, visible engine capability text, labelled dialog voice selectors, status-specific indicators, and coarse-pointer touch targets.
+- Prevented the PWA shell cache from storing share-target query payloads or model assets, and capped URL article imports before large cross-origin responses are parsed.
 
 ## v0.13.0 - 2026-07-09
 

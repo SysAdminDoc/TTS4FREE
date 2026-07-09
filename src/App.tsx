@@ -37,6 +37,7 @@ import {
   type EngineId,
 } from './lib/engine-registry.ts'
 import { type AudioFormat, encodeAudio, formatExtension, formatFromFilename, formatMime, mixBgm, opusSupported, shiftPitch } from './lib/encode.ts'
+import { readArticleResponseText } from './lib/article-import.ts'
 import { KOKORO_SAMPLE_RATE, type ProgressInfo, type RawAudioLike, loadKokoro, probeWebGpu, resetKokoroSession } from './lib/kokoro.ts'
 import { KOKORO_HF_RESOLVE_PREFIX, KOKORO_LOCAL_MODEL_PREFIX, KOKORO_MODEL_ID } from './lib/kokoro-assets.ts'
 import { loadTimestampedKokoro, resetTimestampedKokoroSession, synthesizeTimestampedKokoro } from './lib/kokoro-timestamps.ts'
@@ -1873,7 +1874,7 @@ function App() {
       if (target.protocol !== 'https:' && target.protocol !== 'http:') throw new Error('Unsupported protocol')
       const res = await fetch(target.toString(), { mode: 'cors', signal: controller.signal })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const html = await res.text()
+      const html = await readArticleResponseText(res)
       const doc = new DOMParser().parseFromString(html, 'text/html')
       const { Readability } = await import('@mozilla/readability')
       const article = new Readability(doc).parse()
