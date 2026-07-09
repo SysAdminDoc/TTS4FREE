@@ -2,7 +2,8 @@ import { installKokoroAssetFallback, kokoroRemoteAssetUrl } from './kokoro-asset
 import type { VoiceId } from './voices.ts'
 
 const CACHE_NAME = 'kokoro-voices'
-const STYLE_FLOATS = 510 * 256
+export const VOICE_STYLE_FLOATS = 510 * 256
+const VOICE_STYLE_BYTES = VOICE_STYLE_FLOATS * 4
 
 const binCache = new Map<string, Float32Array>()
 
@@ -39,7 +40,7 @@ export async function fetchVoiceBin(voiceId: string): Promise<Float32Array> {
 }
 
 export function voiceBinFromBuffer(buf: ArrayBuffer, voiceId: string): Float32Array | null {
-  if (buf.byteLength % 4 !== 0 || buf.byteLength < 256 * 4) {
+  if (buf.byteLength !== VOICE_STYLE_BYTES) {
     console.warn(`Discarding invalid voice bin payload for ${voiceId}`)
     return null
   }
@@ -58,10 +59,10 @@ export function blendVoiceBins(bins: { data: Float32Array; weight: number }[]): 
   const totalWeight = bins.reduce((sum, b) => sum + b.weight, 0)
   if (totalWeight <= 0) throw new Error('Total weight must be positive')
 
-  const result = new Float32Array(STYLE_FLOATS)
+  const result = new Float32Array(VOICE_STYLE_FLOATS)
   for (const bin of bins) {
     const w = bin.weight / totalWeight
-    for (let i = 0; i < STYLE_FLOATS && i < bin.data.length; i++) {
+    for (let i = 0; i < VOICE_STYLE_FLOATS && i < bin.data.length; i++) {
       result[i] += bin.data[i] * w
     }
   }

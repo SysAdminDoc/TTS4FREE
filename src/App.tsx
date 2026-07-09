@@ -38,6 +38,7 @@ import {
 } from './lib/engine-registry.ts'
 import { type AudioFormat, encodeAudio, formatExtension, formatFromFilename, formatMime, mixBgm, opusSupported, shiftPitch } from './lib/encode.ts'
 import { readArticleResponseText } from './lib/article-import.ts'
+import { validateBackgroundMusicFile } from './lib/audio-file.ts'
 import { KOKORO_SAMPLE_RATE, type ProgressInfo, type RawAudioLike, loadKokoro, probeWebGpu, resetKokoroSession } from './lib/kokoro.ts'
 import { KOKORO_HF_RESOLVE_PREFIX, KOKORO_LOCAL_MODEL_PREFIX, KOKORO_MODEL_ID } from './lib/kokoro-assets.ts'
 import { loadTimestampedKokoro, resetTimestampedKokoroSession, synthesizeTimestampedKokoro } from './lib/kokoro-timestamps.ts'
@@ -2406,6 +2407,21 @@ function App() {
     reader.readAsText(file)
   }
 
+  function handleBgmFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0] ?? null
+    event.currentTarget.value = ''
+    if (!file) return
+
+    const message = validateBackgroundMusicFile(file)
+    if (message) {
+      showToast({ tone: 'warn', message })
+      return
+    }
+
+    setBgmFile(file)
+    showToast({ tone: 'ok', message: `Background music selected: ${shortUiLabel(file.name, 48)}` })
+  }
+
   return (
       <main className="app-shell">
         <header className="topbar">
@@ -3136,7 +3152,7 @@ function App() {
                           <span className="sr-only">Remove background music</span>
                         </button>
                       ) : null}
-                      <input ref={bgmInputRef} type="file" accept="audio/*" onChange={(e) => { setBgmFile(e.target.files?.[0] ?? null); e.target.value = '' }} hidden />
+                      <input ref={bgmInputRef} type="file" accept="audio/*" onChange={handleBgmFileChange} hidden />
                     </div>
                     {bgmFile ? (
                       <div className="range-row bgm-volume-row">

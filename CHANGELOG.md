@@ -9,6 +9,7 @@
 - Removed share-target query/hash payloads from diagnostics location data and expanded diagnostic redaction for secret-like URL path segments.
 - Hardened premium UI accessibility with contrast-safe action tokens, real active-section navigation, visible engine capability text, labelled dialog voice selectors, status-specific indicators, and coarse-pointer touch targets.
 - Prevented the PWA shell cache from storing share-target query payloads or model assets, and capped URL article imports before large cross-origin responses are parsed.
+- Rejected corrupt cached Kokoro voice-bin payloads unless they match the exact style tensor size, and blocked oversized or non-audio background music files before decode.
 
 ## v0.13.0 - 2026-07-09
 

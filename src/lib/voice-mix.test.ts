@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { blendVoiceBins, formatMixFormula, parseMixFormula, voiceBinFromBuffer } from './voice-mix.ts'
+import { VOICE_STYLE_FLOATS, blendVoiceBins, formatMixFormula, parseMixFormula, voiceBinFromBuffer } from './voice-mix.ts'
 
 describe('blendVoiceBins', () => {
   it('returns the only bin unchanged for a single entry', () => {
@@ -83,9 +83,17 @@ describe('voiceBinFromBuffer', () => {
     warn.mockRestore()
   })
 
-  it('accepts Float32 voice data', () => {
+  it('rejects short Float32 voice data', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const data = new Float32Array(256)
 
-    expect(voiceBinFromBuffer(data.buffer as ArrayBuffer, 'af_heart')?.length).toBe(256)
+    expect(voiceBinFromBuffer(data.buffer as ArrayBuffer, 'af_heart')).toBeNull()
+    warn.mockRestore()
+  })
+
+  it('accepts an exact Kokoro style tensor', () => {
+    const data = new Float32Array(VOICE_STYLE_FLOATS)
+
+    expect(voiceBinFromBuffer(data.buffer as ArrayBuffer, 'af_heart')?.length).toBe(VOICE_STYLE_FLOATS)
   })
 })
