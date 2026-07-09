@@ -47,6 +47,11 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request)
       .then((response) => {
+        // After a deploy, old hashed assets 404 on Pages — serve the cached
+        // copy (if any survives) instead of breaking an already-open tab.
+        if (cacheRequest && (response.status === 404 || response.status === 410)) {
+          return caches.match(cacheRequest).then((hit) => hit ?? response)
+        }
         if (!response.ok || response.type === 'opaque') return response
 
         const headers = new Headers(response.headers)

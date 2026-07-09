@@ -121,10 +121,28 @@ export async function prefetchKokoroQ8Pack(
     const path = paths[index]
     onProgress(index, paths.length, path)
     const remoteUrl = kokoroRemoteAssetUrl(path)
-    const response = await fetchKokoroPrefetchAsset(path)
+    const isVoiceBin = path.startsWith('voices/')
 
-    await transformersCache.put(remoteUrl, response.clone())
-    if (path.startsWith('voices/')) await voiceCache.put(remoteUrl, response.clone())
+    // Re-running prefetch must be idempotent — never re-download the 92 MB
+    // model file when it is already in the cache.
+    const alreadyCached = isVoiceBin
+      ? Boolean(await transformersCache.match(remoteUrl)) && Boolean(await voiceCache.match(remoteUrl))
+      : Boolean(await transformersCache.match(remoteUrl))
+    if (alreadyCached) {
+      cached += 1
+      onProgress(cached, paths.length, path)
+      continue
+    }
+
+    const response = await fetchKokoroPrefetchAsset(path)
+    // Consume the original response in the final put — an unconsumed clone
+    // branch buffers the whole payload in memory until GC.
+    if (isVoiceBin) {
+      await transformersCache.put(remoteUrl, response.clone())
+      await voiceCache.put(remoteUrl, response)
+    } else {
+      await transformersCache.put(remoteUrl, response)
+    }
     cached += 1
     onProgress(cached, paths.length, path)
   }
