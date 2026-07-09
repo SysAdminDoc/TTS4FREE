@@ -13,10 +13,12 @@ export type RawAudioLike = {
 
 export type ProgressInfo = {
   status?: string
+  name?: string
   file?: string
   progress?: number
   loaded?: number
   total?: number
+  files?: Record<string, { loaded: number; total: number }>
 }
 
 let kokoroPromise: Promise<KokoroInstance> | null = null

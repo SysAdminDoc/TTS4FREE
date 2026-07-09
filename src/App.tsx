@@ -51,7 +51,7 @@ import { type Cue, toSRT, toVTT } from './lib/subtitles.ts'
 import { concatFloat32Arrays, encodeWav } from './lib/wav.ts'
 import { speakBrowser } from './lib/webspeech.ts'
 
-const APP_VERSION = '0.10.0'
+const APP_VERSION = '0.11.0'
 const MAX_TEXT_CHARS = 5000
 
 type Engine = 'kokoro' | 'supertonic' | 'kitten' | 'browser'
@@ -672,7 +672,11 @@ function App() {
 
     const fileTotals = new Map<string, { loaded: number; total: number }>()
     const onProgress = (info: { status?: string; file?: string; loaded?: number; total?: number }) => {
-      if (info.status === 'progress' && info.file && typeof info.loaded === 'number' && typeof info.total === 'number') {
+      if (info.status === 'progress_total' && typeof info.loaded === 'number' && typeof info.total === 'number') {
+        const pct = info.total > 0 ? info.loaded / info.total : 0
+        setStatus(`Downloading ${formatBytes(info.loaded)} / ${formatBytes(info.total)}`)
+        setProgress(Math.min(35, Math.max(3, Math.round(pct * 35))))
+      } else if (info.status === 'progress' && info.file && typeof info.loaded === 'number' && typeof info.total === 'number') {
         fileTotals.set(info.file, { loaded: info.loaded, total: info.total })
         let sumLoaded = 0
         let sumTotal = 0

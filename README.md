@@ -1,11 +1,11 @@
 # BetterTTS
 
-[![Version](https://img.shields.io/badge/version-0.10.0-blue.svg)](#)
+[![Version](https://img.shields.io/badge/version-0.11.0-blue.svg)](#)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-GitHub%20Pages-24292f.svg)](https://sysadmindoc.github.io/BetterTTS/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178c6.svg)](#)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](#)
-[![Tests](https://img.shields.io/badge/tests-113%20passing-53d889.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-114%20passing-53d889.svg)](#)
 
 **Free client-side text-to-speech studio.** Kokoro 82M, Supertonic, and KittenTTS run entirely in your browser — no server, no signup, no usage caps (5,000 characters per run, unlimited runs). Export WAV, MP3, Opus, or chaptered M4B — keep everything private.
 
@@ -108,14 +108,14 @@ Open `http://localhost:5173/BetterTTS/` in your browser.
 |---|---|
 | Framework | React 19 + TypeScript 6 |
 | Build | Vite 8 |
-| TTS Model | Kokoro 82M via `kokoro-js` 1.2.1 + Transformers.js; timestamped Kokoro via direct ONNX output; Supertonic via Transformers.js; KittenTTS via `kitten-tts-webgpu` |
+| TTS Model | Kokoro 82M via `kokoro-js` 1.2.1 + Transformers.js 4.2.0; timestamped Kokoro via direct ONNX output; Supertonic via Transformers.js 4.2.0; KittenTTS via `kitten-tts-webgpu` |
 | MP3 Encoding | `@breezystack/lamejs` (LGPL-2.1, browser LAME) |
 | M4B Export | WebCodecs AAC + direct ISO BMFF writer with QuickTime/Nero chapter metadata |
 | Pitch Shifting | `signalsmith-stretch` (MIT, AudioWorklet/WASM) |
 | Phonemization | `phonemizer` for English + `ephone`/eSpeak NG WASM for multilingual Kokoro |
 | ZIP Packaging | `fflate` |
 | Icons | `lucide-react` |
-| Testing | Vitest (113 assertions across 14 suites) |
+| Testing | Vitest (114 assertions across 15 suites) |
 | Linting | oxlint |
 | Hosting | GitHub Pages (static, no backend) |
 
@@ -205,7 +205,7 @@ Multilingual voices:
 | Languages | English (US + British), Spanish, French, Hindi, Italian, Brazilian Portuguese |
 | License | Apache-2.0 |
 
-Supertonic is available as a separate English speed engine: 66M parameters, 10 voices, 44,100 Hz output, HF-hosted fp32 ONNX assets, OpenRAIL license.
+Supertonic is available as a separate English speed engine: 66M parameters, 10 voices, 44,100 Hz output, HF-hosted fp32 ONNX assets, OpenRAIL license, and Transformers.js 4.2.0 runtime.
 
 KittenTTS is available as a separate English lightweight engine: Nano 15M / 24 MB by default, Micro 40M / 41 MB, Mini 80M / 78 MB, 8 voices, 24,000 Hz output, WebGPU-only shader inference, MIT package code, and Apache-2.0 model weights. The package is lazy-loaded and model weights stay HF-hosted until the engine is selected.
 
@@ -213,9 +213,7 @@ Word timestamps are available as an opt-in Kokoro mode using `onnx-community/Kok
 
 ## Roadmap
 
-Planned features (see [ROADMAP.md](ROADMAP.md) for details):
-
-- Transformers.js v4 migration for WebGPU speedups
+The active ROADMAP is drained as of v0.11.0. New items should come from a fresh research or audit pass.
 
 ## Contributing
 

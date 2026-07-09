@@ -2,7 +2,10 @@
 
 ## Unreleased
 
+## v0.11.0 - 2026-07-09
+
 ### Added
+- Migrated the shared `@huggingface/transformers` runtime to 4.2.0 with a root npm override so `kokoro-js`, Supertonic, timestamped Kokoro, and direct tensor paths all resolve to v4; Kokoro WASM q8 and WebGPU fp32 generation were verified in-browser (TF-31).
 - Added KittenTTS as a lazy-loaded English WebGPU engine via `kitten-tts-webgpu`, with 8 voices, Nano/Micro/Mini model selection, 0.5x-2.0x speed controls, WAV/MP3/Opus export through the existing pipeline, focused metadata/WAV parser tests, and desktop/mobile browser QA (TF-29).
 - Added Kokoro multilingual generation for Spanish, French, Hindi, Italian, and Brazilian Portuguese voices via `ephone`/eSpeak NG phonemization and the direct Kokoro model path; English generation remains on the existing `tts.generate()` path (TF-25).
 - Added chaptered M4B audiobook export for completed queue jobs, with WebCodecs AAC encoding, QuickTime `tref/chap` text-track chapters, Nero `chpl` chapter metadata, EPUB TOC title preservation, and focused muxer tests (TF-74).
@@ -10,8 +13,12 @@
 - Added Supertonic as a lazy-loaded English fp32 speed engine via Transformers.js, with 10 F/M voices, 44.1 kHz exports, engine-aware speed/step controls, and built-preview browser QA (TF-37 revised).
 
 ### Changed
+- Updated download progress handling to prefer Transformers.js v4 aggregate `progress_total` byte totals while retaining per-file progress fallback.
 - Added same-origin-first Kokoro q8 model and voice asset loading for GitHub Pages, with Hugging Face fallback and 429-aware retry; deploy now syncs the 92 MB q8 ONNX, tokenizer/config, and 28 English voice bins into `dist/models` (TF-68).
 - Replaced the SoundTouch.js pitch-shift path with Signalsmith Stretch AudioWorklet/WASM offline rendering; +/-4 semitone exports keep exact length and a non-zero tail in Chromium browser QA (TF-70).
+
+### Tests
+- 91 -> 114 assertions across 15 suites, adding coverage for M4B muxing, Kokoro timestamps, multilingual Kokoro, KittenTTS metadata/WAV parsing, and Transformers.js v4 ModelRegistry APIs.
 
 ## v0.10.0 - 2026-07-08
 
