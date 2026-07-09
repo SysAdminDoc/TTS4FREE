@@ -1,0 +1,35 @@
+// Platform abstraction seam. The web build resolves everything to browser APIs;
+// the Electron desktop build injects `window.betterttsPlatform` via its preload
+// and, in later phases, will route synthesis/export/storage to native backends.
+// Keeping this indirection in one module lets `App.tsx` stay platform-agnostic.
+
+export type PlatformKind = 'web' | 'desktop'
+
+export type DesktopBridge = {
+  isDesktop: true
+  kind: 'desktop'
+  versions: { electron: string; chrome: string; node: string }
+}
+
+declare global {
+  interface Window {
+    betterttsPlatform?: DesktopBridge
+  }
+}
+
+export type PlatformInfo = {
+  isDesktop: boolean
+  kind: PlatformKind
+  versions?: DesktopBridge['versions']
+}
+
+export function getPlatform(): PlatformInfo {
+  if (typeof window !== 'undefined' && window.betterttsPlatform?.isDesktop) {
+    return { isDesktop: true, kind: 'desktop', versions: window.betterttsPlatform.versions }
+  }
+  return { isDesktop: false, kind: 'web' }
+}
+
+export function isDesktop(): boolean {
+  return getPlatform().isDesktop
+}

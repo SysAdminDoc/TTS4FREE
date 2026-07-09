@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.16.0",
   "type": "module",
+  "main": "dist-electron/main.cjs",
   "scripts": {
     "clean": "node -e \"import('node:fs').then(fs => fs.rmSync('dist', { recursive: true, force: true }))\"",
     "dev": "vite",
@@ -15,7 +16,11 @@
     "preview": "vite preview",
     "deploy": "node scripts/deploy.mjs",
     "sync:kokoro": "node scripts/sync-kokoro-assets.mjs",
-    "sync:piper": "node scripts/sync-piper-assets.mjs"
+    "sync:piper": "node scripts/sync-piper-assets.mjs",
+    "desktop:dev": "cross-env BETTERTTS_TARGET=electron BETTERTTS_DEV_URL=http://localhost:5174/ concurrently -k -n vite,electron \"vite --port 5174 --strictPort\" \"node scripts/build-electron.mjs --dev && wait-on http://localhost:5174/ && node scripts/run-electron.mjs\"",
+    "desktop:build": "cross-env BETTERTTS_TARGET=electron npm run build && node scripts/build-electron.mjs",
+    "desktop:smoke": "npm run desktop:build && node scripts/run-electron.mjs --smoke",
+    "desktop:dist": "npm run desktop:build && electron-builder --win --config electron-builder.yml"
   },
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",
@@ -42,12 +47,18 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "concurrently": "^10.0.3",
+    "cross-env": "^10.1.0",
+    "electron": "^43.1.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.1",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^29.1.1",
     "oxlint": "^1.71.0",
     "playwright": "^1.61.1",
     "typescript": "~6.0.2",
     "vite": "^8.1.1",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "wait-on": "^9.0.10"
   }
 }

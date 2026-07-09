@@ -11,6 +11,8 @@
 
 [**Try it live**](https://sysadmindoc.github.io/BetterTTS/) | [Changelog](CHANGELOG.md)
 
+> **Desktop app (preview).** A Windows desktop build is in progress on Electron — it reuses this exact studio inside a version-locked Chromium shell (guaranteeing WebCodecs, WebGPU, and SharedArrayBuffer regardless of the system browser) and will add native ONNX Runtime inference (DirectML/CUDA/CPU) and FFmpeg export in later phases. `npm run desktop:dev` to run it, `npm run desktop:dist` to build a Windows installer. The web app above is unaffected.
+
 ---
 
 ## Why BetterTTS?

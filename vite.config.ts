@@ -65,9 +65,16 @@ function piperPlusBuildPatch(): Plugin {
   }
 }
 
+// The Electron desktop build loads the renderer from a custom app:// scheme, so
+// it needs relative asset paths and sets its COOP/COEP/CSP headers in the main
+// process instead of via the service worker / a build-time <meta> tag.
+const isElectron = process.env.BETTERTTS_TARGET === 'electron'
+
 export default defineConfig({
-  base: '/BetterTTS/',
-  plugins: [react(), swBuildId(), cspInjector(), piperPlusBuildPatch()],
+  base: isElectron ? './' : '/BetterTTS/',
+  plugins: isElectron
+    ? [react(), piperPlusBuildPatch()]
+    : [react(), swBuildId(), cspInjector(), piperPlusBuildPatch()],
   worker: {
     format: 'es',
   },

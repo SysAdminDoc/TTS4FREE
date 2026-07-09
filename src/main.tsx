@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App, { ErrorBoundary } from './App.tsx'
+import { isDesktop } from './platform/index.ts'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -11,7 +12,10 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 )
 
-if ('serviceWorker' in navigator) {
+// The desktop shell serves its own already-isolated origin with native storage,
+// so the service worker (app-shell cache + COOP/COEP injection + reload dance)
+// is web-only.
+if (!isDesktop() && 'serviceWorker' in navigator) {
   navigator.serviceWorker
     .register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL })
     .then((reg) => {

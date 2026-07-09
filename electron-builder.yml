@@ -1,0 +1,30 @@
+appId: com.bettertts.desktop
+productName: BetterTTS
+copyright: Copyright © 2026 SysAdminDoc
+
+directories:
+  output: release
+  buildResources: build
+
+# The renderer (dist/) and the compiled main/preload (dist-electron/) are the
+# only things shipped; everything else is dev tooling.
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+
+# Large model weights are fetched at runtime and cached natively, never bundled.
+asar: true
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  # icon: build/icon.ico   # add a 256px .ico under build/ before signed release
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
