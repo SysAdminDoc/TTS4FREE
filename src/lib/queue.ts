@@ -15,6 +15,8 @@ export type QueueChunk = {
   cues?: Cue[]
   blobKey?: string
   error?: string
+  /** Non-fatal completeness-check note (possible truncation / skipped text). */
+  warning?: string
 }
 
 export type QueueJob = {
@@ -216,6 +218,7 @@ function migrateQueueChunk(raw: unknown, index: number): QueueChunk {
     cues: Array.isArray(chunk.cues) ? chunk.cues.filter(isCue) : undefined,
     blobKey: chunk.blobKey,
     error: chunk.error,
+    warning: typeof chunk.warning === 'string' ? chunk.warning : undefined,
   }
 }
 

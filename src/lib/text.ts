@@ -275,3 +275,28 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} kB`
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
+
+export type CompletenessCheck = {
+  suspect: boolean
+  minExpectedSeconds: number
+  speakableChars: number
+}
+
+// Silent truncation — an engine dropping the tail of a sentence without any
+// error — is the top trust-killer in long-form TTS. Flag audio that is
+// implausibly short for its source text: no natural speech exceeds ~45
+// speakable characters per second (scaled by the speed setting), so output
+// under that floor lost content. Inputs below 80 speakable characters are
+// exempt (single words and short lines have too much natural variance).
+export function checkSynthesisCompleteness(text: string, audioSeconds: number, speed = 1): CompletenessCheck {
+  // Combining marks count as speakable: in Indic scripts the vowel matras are
+  // \p{M}, and dropping them would halve the counted length of Hindi text.
+  const speakableChars = (text.match(/[\p{L}\p{N}\p{M}]/gu) ?? []).length
+  const maxCharsPerSecond = 45 * Math.max(0.5, Math.min(2, speed))
+  const minExpectedSeconds = speakableChars / maxCharsPerSecond
+  return {
+    suspect: speakableChars >= 80 && audioSeconds < minExpectedSeconds,
+    minExpectedSeconds,
+    speakableChars,
+  }
+}

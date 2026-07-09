@@ -1,5 +1,40 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_CLEANUP, cleanupText, formatBytes, normalizeAudiobookNumbers, parseDialogLines, parsePauseTags, slugify, splitInput, splitIntoSentences } from './text.ts'
+import { DEFAULT_CLEANUP, checkSynthesisCompleteness, cleanupText, formatBytes, normalizeAudiobookNumbers, parseDialogLines, parsePauseTags, slugify, splitInput, splitIntoSentences } from './text.ts'
+
+describe('checkSynthesisCompleteness', () => {
+  // ~200 speakable chars of ordinary prose.
+  const longSentence = 'The quick brown fox jumps over the lazy dog while the narrator keeps reading this deliberately long sentence about audiobooks, chapters, pronunciation, and the many ways engines can silently drop text.'
+
+  it('flags audio implausibly short for its text (truncated fixture)', () => {
+    const result = checkSynthesisCompleteness(longSentence, 1.0, 1)
+    expect(result.suspect).toBe(true)
+    expect(result.speakableChars).toBeGreaterThan(150)
+    expect(result.minExpectedSeconds).toBeGreaterThan(1.0)
+  })
+
+  it('accepts plausible durations for the same text', () => {
+    expect(checkSynthesisCompleteness(longSentence, 12, 1).suspect).toBe(false)
+  })
+
+  it('exempts short inputs where variance dominates', () => {
+    expect(checkSynthesisCompleteness('Six.', 0.1, 1).suspect).toBe(false)
+    expect(checkSynthesisCompleteness('A fairly short line of text.', 0.2, 1).suspect).toBe(false)
+  })
+
+  it('scales the floor with the speed setting', () => {
+    const chars = checkSynthesisCompleteness(longSentence, 0, 1).speakableChars
+    const borderline = chars / 60 // between the 45 c/s floor (speed 1) and 90 c/s (speed 2)
+    expect(checkSynthesisCompleteness(longSentence, borderline, 1).suspect).toBe(true)
+    expect(checkSynthesisCompleteness(longSentence, borderline, 2).suspect).toBe(false)
+  })
+
+  it('counts non-Latin speakable characters', () => {
+    const hindi = 'यह एक लंबा वाक्य है जो हिंदी में लिखा गया है और इसमें बहुत सारे अक्षर हैं ताकि पूर्णता की जांच सही ढंग से काम करे और छोटे इनपुट की छूट लागू न हो पाए।'
+    const result = checkSynthesisCompleteness(hindi, 0.5, 1)
+    expect(result.speakableChars).toBeGreaterThan(80)
+    expect(result.suspect).toBe(true)
+  })
+})
 
 describe('slugify', () => {
   it('lowercases and replaces non-alphanumeric chars', () => {

@@ -100,7 +100,7 @@ import {
   synthesizeKitten,
 } from './lib/kitten.ts'
 import { SUPERTONIC_DEFAULT_STEPS, SUPERTONIC_MODEL_ID, SUPERTONIC_SAMPLE_RATE, SUPERTONIC_VOICES, type SupertonicVoiceId, clampSupertonicSpeed, loadSupertonic, supertonicVoiceUrl, synthesizeSupertonic } from './lib/supertonic.ts'
-import { type CleanupOptions, DEFAULT_CLEANUP, PAUSE_TAG, cleanupText, formatBytes, parseDialogLines, parsePauseTags, slugify, splitInput, splitIntoSentences } from './lib/text.ts'
+import { type CleanupOptions, DEFAULT_CLEANUP, PAUSE_TAG, checkSynthesisCompleteness, cleanupText, formatBytes, parseDialogLines, parsePauseTags, slugify, splitInput, splitIntoSentences } from './lib/text.ts'
 import { KOKORO_LANGUAGES, VOICES, isEnglishKokoroLocale, kokoroLanguageForLocale, kokoroLanguageForVoice, type KokoroLocale } from './lib/voices.ts'
 import { type Cue, toSRT, toVTT } from './lib/subtitles.ts'
 import { concatFloat32Arrays, encodeWav } from './lib/wav.ts'
@@ -1580,6 +1580,7 @@ function App() {
       for (const seg of plan) if (seg.type === 'text') totalSentences += seg.sentences.length
     }
     let done = 0
+    let flaggedSentences = 0
 
     for (let index = 0; index < jobs.length; index += 1) {
       if (abortRef.current) break
@@ -1604,6 +1605,15 @@ function App() {
           const audio = await synthesize(applyPronunciations(sentence), job.voice, speed, job.voiceBin)
           if (audio) {
             if (audio.sampleRate !== outputSampleRate) throw new Error('Generated chunks used mixed sample rates.')
+            const completeness = checkSynthesisCompleteness(sentence, audio.samples.length / outputSampleRate, speed)
+            if (completeness.suspect) {
+              flaggedSentences += 1
+              recordDiagnosticEvent(
+                'warn',
+                `Possible truncation: ${completeness.speakableChars} speakable chars produced ${(audio.samples.length / outputSampleRate).toFixed(1)}s of audio (floor ${completeness.minExpectedSeconds.toFixed(1)}s).`,
+                'synthesis.completeness',
+              )
+            }
             audioParts.push(audio.samples)
             totalSamples += audio.samples.length
             totalChars += sentence.length
@@ -1628,6 +1638,11 @@ function App() {
               src.start(nextPlayTime)
               nextPlayTime = Math.max(nextPlayTime, audioCtx.currentTime) + buf.duration
             }
+          } else if (!abortRef.current) {
+            // A null return silently drops the sentence from the output — the
+            // exact truncation class the completeness check exists to catch.
+            flaggedSentences += 1
+            recordDiagnosticEvent('warn', `Engine produced no audio for a ${sentence.length}-char sentence — it is missing from the output.`, 'synthesis.completeness')
           }
           done++
           if (totalSentences > 0) {
@@ -1740,6 +1755,9 @@ function App() {
     if (abortRef.current) {
       setStatus(generated.length > 0 ? 'Cancelled — partial output kept' : 'Cancelled')
       showToast({ tone: 'warn', message: 'Generation cancelled.' })
+    } else if (flaggedSentences > 0) {
+      setStatus('Local audio ready — completeness check flagged output')
+      showToast({ tone: 'warn', message: `Audio ready, but ${flaggedSentences} sentence${flaggedSentences === 1 ? ' was' : 's were'} flagged as possibly truncated or missing — details in Diagnostics.` })
     } else {
       setStatus('Local audio ready')
       showToast({ tone: 'ok', message: opts.successMessage ?? 'Audio generated locally in your browser.' })
@@ -2141,13 +2159,14 @@ function App() {
     text: string,
     synthesize: LoadedQueueEngine['synthesize'],
     sampleRate: number,
-  ): Promise<{ blob: Blob; duration: string; cues?: Cue[] } | null> {
+  ): Promise<{ blob: Blob; duration: string; cues?: Cue[]; warning?: string } | null> {
     const sentences = splitIntoSentences(applyPronunciations(text))
     const parts: Float32Array[] = []
     const cues: Cue[] = []
     let sampleOffset = 0
     let cueIndex = 1
     let aborted = false
+    let flagged = 0
     for (const sentence of sentences) {
       if (abortRef.current) {
         aborted = true
@@ -2155,6 +2174,7 @@ function App() {
       }
       const audio = await synthesize(sentence, job.voice, job.speed)
       if (audio) {
+        if (checkSynthesisCompleteness(sentence, audio.samples.length / sampleRate, job.speed).suspect) flagged += 1
         const startSec = sampleOffset / sampleRate
         parts.push(audio.samples)
         sampleOffset += audio.samples.length
@@ -2168,6 +2188,8 @@ function App() {
         } else {
           cues.push({ index: cueIndex++, startSec, endSec, text: sentence })
         }
+      } else {
+        flagged += 1
       }
     }
     // A pause/cancel mid-chunk must never be checkpointed: a partial blob saved
@@ -2179,6 +2201,9 @@ function App() {
       blob: await encodeAudio(raw, sampleRate, job.format, job.bitrate),
       duration: `${(raw.length / sampleRate).toFixed(1)}s`,
       cues: cues.length > 0 ? cues : undefined,
+      warning: flagged > 0
+        ? `${flagged} of ${sentences.length} sentence${sentences.length === 1 ? '' : 's'} flagged as possibly truncated or missing`
+        : undefined,
     }
   }
 
@@ -2215,6 +2240,7 @@ function App() {
             await saveChunkBlob(jobId, chunk.index, replacement.blob)
             chunk.duration = replacement.duration
             chunk.cues = replacement.cues
+            chunk.warning = replacement.warning
             chunk.status = 'done'
           }
         } catch (err) {
@@ -2920,6 +2946,7 @@ function App() {
                     const doneChunks = job.chunks.filter((chunk) => chunk.status === 'done')
                     const queueStatus = queueJobStatus(job)
                     const failedChunks = job.chunks.filter((chunk) => chunk.status === 'failed')
+                    const warnedChunks = job.chunks.filter((chunk) => chunk.status === 'done' && chunk.warning)
                     return (
                       <div className="result-row queue-job-row" key={job.id}>
                         <div className="result-meta">
@@ -2939,6 +2966,15 @@ function App() {
                                 ? `Chunk ${failedChunks[0].index + 1} failed: ${shortUiLabel(failedChunks[0].error ?? 'Unknown error', 120)}`
                                 : `${failedChunks.length} chunks failed — first at chunk ${failedChunks[0].index + 1}: ${shortUiLabel(failedChunks[0].error ?? 'Unknown error', 100)}`}
                               {' '}Resume retries failed chunks.
+                            </span>
+                          </div>
+                        ) : null}
+                        {warnedChunks.length > 0 ? (
+                          <div className="capability-strip warn" role="status">
+                            <Info size={15} aria-hidden="true" />
+                            <span>
+                              Completeness check: chunk {warnedChunks[0].index + 1} — {shortUiLabel(warnedChunks[0].warning ?? '', 110)}
+                              {warnedChunks.length > 1 ? ` (+${warnedChunks.length - 1} more)` : ''}. Edit &amp; regenerate the chunk below.
                             </span>
                           </div>
                         ) : null}
