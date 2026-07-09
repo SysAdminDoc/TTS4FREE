@@ -89,7 +89,7 @@ footer button {
 .nav-links a:hover,
 .nav-links a.active {
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  color: var(--accent);
+  color: var(--accent-text);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
@@ -130,7 +130,7 @@ footer button {
   display: inline-block;
   width: 7px;
   height: 7px;
-  border-radius: 3px;
+  border-radius: 4px;
   background: var(--success);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 16%, transparent);
 }
@@ -173,6 +173,10 @@ footer button {
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--accent) 16%, transparent), transparent 62%),
     color-mix(in srgb, var(--surface-raised) 90%, transparent);
+}
+
+.summary-card-primary small {
+  color: var(--text);
 }
 
 .summary-card span {
@@ -291,10 +295,6 @@ footer button {
   text-transform: uppercase;
 }
 
-.editor-column > .section-heading {
-  order: 1;
-}
-
 .workspace-column > .output-panel {
   order: 5;
 }
@@ -327,32 +327,17 @@ footer button {
 }
 
 .editor-frame {
-  order: 3;
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   min-height: clamp(370px, 46vh, 560px);
   border: 1px solid var(--border-strong);
   border-radius: 0;
   background:
     linear-gradient(90deg, color-mix(in srgb, var(--accent) 7%, transparent), transparent 28rem),
-    repeating-linear-gradient(180deg, transparent 0 31px, color-mix(in srgb, var(--line-soft) 62%, transparent) 31px 32px),
     var(--editor-bg);
   overflow: hidden;
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--heading) 4%, transparent);
   transition: border-color 160ms ease, box-shadow 160ms ease;
-}
-
-.line-numbers {
-  display: flex;
-  flex-direction: column;
-  align-items: end;
-  gap: 9px;
-  padding: 20px 16px 20px 8px;
-  border-right: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg) 34%, transparent);
-  color: var(--muted);
-  font: 13px/1.2 var(--mono);
-  user-select: none;
 }
 
 .editor-frame textarea {
@@ -362,7 +347,13 @@ footer button {
   padding: 20px;
   background: transparent;
   color: var(--heading);
-  font: 15px/1.65 var(--mono);
+  /* The ruled lines live on the textarea (attachment: local, origin:
+     content-box) so they scroll with the text and the 26px pitch matches the
+     line height exactly — a mismatched ruling reads as a rendering bug. */
+  background-image: repeating-linear-gradient(180deg, transparent 0 25px, color-mix(in srgb, var(--line-soft) 62%, transparent) 25px 26px);
+  background-attachment: local;
+  background-origin: content-box;
+  font: 15px/26px var(--mono);
 }
 
 .editor-frame textarea:focus {
@@ -375,7 +366,6 @@ footer button {
 }
 
 .editor-actions {
-  order: 2;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -420,7 +410,6 @@ footer button {
 }
 
 .editor-statusbar {
-  order: 4;
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
@@ -435,13 +424,13 @@ footer button {
   font: 600 12px/1.25 var(--sans);
 }
 
-button:hover,
+button:hover:not(:disabled),
 .result-actions a:hover,
-.playback-tools button:hover,
-.queue-chunk-row > button:hover,
-.queue-chunk-editor-actions button:hover,
+.playback-tools button:hover:not(:disabled),
+.queue-chunk-row > button:hover:not(:disabled),
+.queue-chunk-editor-actions button:hover:not(:disabled),
 .zip-download:hover,
-footer button:hover {
+footer button:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   color: var(--heading);
   background: var(--surface-2);
@@ -724,7 +713,7 @@ button:disabled {
 .ready-dot {
   width: 9px;
   height: 9px;
-  border-radius: 3px;
+  border-radius: 4px;
   background: var(--success);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 16%, transparent);
 }
@@ -1128,6 +1117,18 @@ button:disabled {
   font-weight: 650;
 }
 
+/* A capability failure (e.g. "WebGPU unavailable") must not be dressed in
+   healthy green. */
+.engine-status.warn {
+  background: color-mix(in srgb, var(--warning) 9%, var(--surface-1));
+  color: color-mix(in srgb, var(--warning) 72%, var(--text));
+}
+
+.engine-status.warn .status-dot {
+  background: var(--warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warning) 16%, transparent);
+}
+
 .cache-manager,
 .diagnostics-panel {
   display: grid;
@@ -1179,7 +1180,7 @@ button:disabled {
   min-height: 40px;
   padding: 7px 8px;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--control-bg) 90%, var(--surface-0));
 }
 
@@ -1450,7 +1451,7 @@ select:focus-visible {
   padding: 6px 10px;
   border-radius: 6px;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: 13px;
   font-weight: 650;
   text-overflow: ellipsis;
@@ -1507,14 +1508,14 @@ select:focus-visible {
   height: 6px;
   margin-bottom: 14px;
   overflow: hidden;
-  border-radius: 3px;
+  border-radius: 4px;
   background: var(--surface-2);
 }
 
 .progress-wrap span {
   display: block;
   height: 100%;
-  border-radius: 3px;
+  border-radius: 4px;
   background: linear-gradient(90deg, var(--accent), var(--accent-2));
   transition: width 220ms ease;
 }
@@ -1527,7 +1528,7 @@ select:focus-visible {
   padding: 8px 10px;
   border-radius: 6px;
   background: var(--surface-2);
-  color: var(--muted);
+  color: var(--text);
   font: 500 12px/1.4 var(--mono);
 }
 
@@ -1617,7 +1618,7 @@ select:focus-visible {
   padding: 7px 10px;
   border-radius: 6px;
   background: color-mix(in srgb, var(--accent) 16%, transparent);
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: 13px;
   font-weight: 730;
 }
@@ -1899,8 +1900,14 @@ footer {
   .summary-card,
   .summary-card:first-child,
   .summary-card:last-child {
-    border-left-width: 1px;
+    border-left-width: 0;
     border-radius: 0;
+  }
+
+  /* Only row-start cards restore a left border — a full border on every card
+     doubles the vertical seams between columns. */
+  .summary-card:nth-child(3n + 1) {
+    border-left-width: 1px;
   }
 
   .summary-card:nth-child(1) {
@@ -1981,7 +1988,12 @@ footer {
   .summary-card:nth-child(3),
   .summary-card:nth-child(4),
   .summary-card:nth-child(6) {
+    border-left-width: 0;
     border-radius: 0;
+  }
+
+  .summary-card:nth-child(odd) {
+    border-left-width: 1px;
   }
 
   .summary-card:nth-child(n + 3) {

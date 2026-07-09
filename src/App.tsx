@@ -11,6 +11,7 @@ import {
   Info,
   Loader2,
   Moon,
+  FilePlus2,
   Play,
   RefreshCw,
   Settings2,
@@ -18,6 +19,7 @@ import {
   SquareCode,
   Sun,
   Trash2,
+  TriangleAlert,
   Upload,
   Volume2,
   Waves,
@@ -141,9 +143,9 @@ const STARTER_TEXT = `Welcome to BetterTTS — free text-to-speech that runs ent
 
 No server, no signup, unlimited use — up to 5,000 characters per run. Your text never leaves this device.
 
-Pick a voice from the panel on the right, then click Generate audio. The Kokoro 82M neural model will synthesize your text into natural-sounding speech.
+Pick a voice from the control console, then click Generate audio. The Kokoro 82M neural model will synthesize your text into natural-sounding speech.
 
-Download as WAV or MP3 when you're done.`
+Download as WAV, MP3, or Opus when you're done.`
 
 const MODEL_ROWS = [
   ['Kokoro 82M', 'Kokoro local', '82M', 'EN / ES / FR / HI / IT / PT', 'Ready'],
@@ -201,7 +203,7 @@ function timestamp() {
 function shortUiLabel(value: string, max = 80): string {
   const normalized = value.replace(/\s+/g, ' ').trim()
   if (normalized.length <= max) return normalized
-  return `${normalized.slice(0, Math.max(0, max - 3)).trimEnd()}...`
+  return `${normalized.slice(0, Math.max(0, max - 1)).trimEnd()}…`
 }
 
 function importSizeError(file: File): Toast | null {
@@ -247,7 +249,7 @@ function m4bCapabilityTone(capability: M4bCapability | null): 'ok' | 'warn' | 'm
 }
 
 function m4bCapabilityText(capability: M4bCapability | null): string {
-  return capability?.message ?? 'Checking M4B WebCodecs AAC support...'
+  return capability?.message ?? 'Checking M4B WebCodecs AAC support…'
 }
 
 function crossOriginStorageShortLabel(usable: boolean): string {
@@ -596,7 +598,7 @@ function LibraryClipRow({ clip, onDeleted, onNotice }: LibraryClipRowProps) {
         <PlaybackAudio playbackKey={`clip:${clip.id}`} src={url} label={clip.filename} cues={clip.cues} vttUrl={vttUrl} />
       ) : null}
       <div className="result-actions">
-        <button type="button" onClick={loadPlayer} disabled={busy !== null}>
+        <button type="button" onClick={loadPlayer} disabled={busy !== null || url !== null}>
           {busy === 'load' ? <Loader2 size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}
           {url ? 'Loaded' : 'Play'}
         </button>
@@ -677,7 +679,7 @@ function QueueChunkPlayer({ jobId, chunk, format, regenerating, onRegenerate, on
           {chunk.cues?.length ? ` - ${chunk.cues.length} cues` : ' - time resume'}
         </small>
       </div>
-      <button type="button" onClick={loadPlayer} disabled={loading || regenerating}>
+      <button type="button" onClick={loadPlayer} disabled={loading || regenerating || url !== null}>
         {loading ? <Loader2 size={15} aria-hidden="true" /> : <Play size={15} aria-hidden="true" />}
         {url ? 'Loaded' : 'Play'}
       </button>
@@ -772,6 +774,9 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
 function App() {
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
   const [activeNavSection, setActiveNavSection] = useState<NavSection>(getActiveNavSection)
+  const [activeWorkspaceHash, setActiveWorkspaceHash] = useState<string>(() => (
+    typeof window === 'undefined' ? '' : window.location.hash.replace(/^#/, '')
+  ))
   const [engine, setEngine] = useState<Engine>('kokoro')
   const [locale, setLocale] = useState<KokoroLocale>('en-us')
   const [voiceId, setVoiceId] = useState('af_heart')
@@ -883,11 +888,10 @@ function App() {
   const kittenRuntimeReady = hasKittenWebGpu()
   const speedMin = engine === 'supertonic' ? 0.8 : 0.5
   const speedMax = engine === 'supertonic' ? 1.2 : engine === 'kitten' ? 2 : 1.5
-  const lineNumbers = useMemo(() => text.split(/\r?\n/).map((_, index) => index + 1), [text])
   const usableText = text.slice(0, MAX_TEXT_CHARS)
   const overLimit = text.length > MAX_TEXT_CHARS
   const wordCount = useMemo(() => text.trim().split(/\s+/).filter(Boolean).length, [text])
-  const lineCount = lineNumbers.length
+  const lineCount = useMemo(() => text.split(/\r?\n/).length, [text])
   const cacheRows = modelCache?.engines ?? []
   const modelCached = (cacheRows.find((row) => row.id === 'kokoro')?.entryCount ?? 0) > 0
   const m4bExportReady = m4bCapability?.supported === true
@@ -959,17 +963,31 @@ function App() {
   const editorModeLabel = dialogMode ? 'Dialog script' : separateLines ? 'Line export' : 'Single clip'
   const completedQueueChunks = queueJobs.reduce((total, job) => total + job.chunks.filter((chunk) => chunk.status === 'done').length, 0)
   const totalQueueChunks = queueJobs.reduce((total, job) => total + job.chunks.length, 0)
-  const queueSummaryLabel = queueJobs.length > 0 ? `${queueJobs.length} jobs / ${completedQueueChunks}/${totalQueueChunks} chunks` : 'No queued jobs'
-  const librarySummaryLabel = library.length > 0 ? `${library.length} saved clips` : 'Library ready'
+  const queueSummaryLabel = queueJobs.length > 0
+    ? `${queueJobs.length} job${queueJobs.length === 1 ? '' : 's'} / ${completedQueueChunks}/${totalQueueChunks} chunks`
+    : 'No queued jobs'
+  const librarySummaryLabel = library.length > 0 ? `${library.length} saved clip${library.length === 1 ? '' : 's'}` : 'No saved clips'
   const cleanupSummary = Object.values(cleanup).some(Boolean) ? 'Cleanup on' : 'Cleanup off'
+  const engineStatusTone = engine === 'kitten' && !kittenRuntimeReady ? 'warn' : 'ok'
+  // Pitch shift only ever applies to the Kokoro export path — never promise it
+  // for other engines.
+  const speedSummary = engine === 'kokoro' && pitchSemitones !== 0
+    ? `${speed.toFixed(2)}x / ${pitchSemitones > 0 ? `+${pitchSemitones}` : pitchSemitones} st`
+    : `${speed.toFixed(2)}x`
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
+    // Keep the browser/PWA chrome color in sync — a light UI under a
+    // near-black Android status bar reads as a theming bug.
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#05080d' : '#eef3f8')
     try { window.localStorage.setItem('bettertts-theme', theme) } catch { /* storage blocked */ }
   }, [theme])
 
   useEffect(() => {
-    const syncActiveSection = () => setActiveNavSection(getActiveNavSection())
+    const syncActiveSection = () => {
+      setActiveNavSection(getActiveNavSection())
+      setActiveWorkspaceHash(window.location.hash.replace(/^#/, ''))
+    }
     syncActiveSection()
     window.addEventListener('hashchange', syncActiveSection)
     return () => window.removeEventListener('hashchange', syncActiveSection)
@@ -1731,6 +1749,9 @@ function App() {
   }
 
   async function generateBrowser(chunks: string[]) {
+    // Drop the previous run's results and ZIP link — a stale "Download all
+    // ZIP" must never render under the new browser-playback row.
+    clearOutputs()
     setStatus('Starting browser speech')
     setProgress(5)
     const cleanText = chunks.join('\n\n').replace(PAUSE_TAG, ' ')
@@ -2141,7 +2162,7 @@ function App() {
         showToast({ tone: 'ok', message: `Job "${job.title}" complete.` })
       }
     } catch (err) {
-      showToast({ tone: 'error', message: err instanceof Error ? err.message : 'Queue failed' })
+      showToast({ tone: 'error', message: err instanceof Error ? err.message : 'The queue run failed.' })
     } finally {
       generatingRef.current = false
       setIsGenerating(false)
@@ -2363,7 +2384,7 @@ function App() {
           const phaseSpan = info.phase === 'decode' ? 30 : info.phase === 'encode' ? 55 : 10
           const pct = info.total > 0 ? phaseBase + Math.round((info.done / info.total) * phaseSpan) : phaseBase
           setProgress(Math.min(99, pct))
-          setStatus(info.phase === 'decode' ? 'Decoding queue audio...' : info.phase === 'encode' ? 'Encoding AAC...' : 'Writing M4B chapters...')
+          setStatus(info.phase === 'decode' ? 'Decoding queue audio…' : info.phase === 'encode' ? 'Encoding AAC…' : 'Writing M4B chapters…')
         },
       })
       const url = URL.createObjectURL(blob)
@@ -2589,8 +2610,8 @@ function App() {
             <small>{activeVoiceDetail}</small>
           </div>
           <div className="summary-card">
-            <span>Speed / Pitch</span>
-            <strong>{speed.toFixed(2)}x / {pitchSemitones > 0 ? `+${pitchSemitones}` : pitchSemitones} st</strong>
+            <span>Delivery</span>
+            <strong>{speedSummary}</strong>
             <small>{editorModeLabel}</small>
           </div>
           <div className="summary-card">
@@ -2599,14 +2620,14 @@ function App() {
             <small>{captionModeLabel}</small>
           </div>
           <div className="summary-card">
-            <span>Queue</span>
+            <span>Queue / Library</span>
             <strong>{queueSummaryLabel}</strong>
             <small>{librarySummaryLabel}</small>
           </div>
           <div className="summary-card">
             <span>System</span>
             <strong>{runtimeLabel}</strong>
-            <small>{storageEstimate ?? 'Storage ready'}</small>
+            <small>{storageEstimate ?? 'Storage n/a'}</small>
           </div>
         </section>
 
@@ -2620,29 +2641,16 @@ function App() {
                   {overLimit ? ` (${text.length - MAX_TEXT_CHARS} over)` : ''}
                 </span>
               </div>
-              <div className="editor-frame">
-                <div className="line-numbers" aria-hidden="true">
-                  {lineNumbers.map((lineNumber) => (
-                    <span key={lineNumber}>{lineNumber}</span>
-                  ))}
-                </div>
-                <textarea
-                  value={text}
-                  onChange={(event) => setText(event.target.value)}
-                  spellCheck={false}
-                  aria-label="Text to synthesize"
-                />
-              </div>
-              <div className="editor-statusbar" aria-label="Editor status">
-                <span>{wordCount} words</span>
-                <span>{text.length} characters</span>
-                <span>{lineCount} lines</span>
-                <span>{editorModeLabel}</span>
-                <span>{cleanupSummary}</span>
-              </div>
               <div className="editor-actions">
-                <button type="button" onClick={() => setText('')}>
-                  <X size={16} aria-hidden="true" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!text) return
+                    setText('')
+                    showToast({ tone: 'ok', message: 'Script cleared.' })
+                  }}
+                >
+                  <FilePlus2 size={16} aria-hidden="true" />
                   New
                 </button>
                 <button type="button" onClick={() => fileInputRef.current?.click()}>
@@ -2695,6 +2703,21 @@ function App() {
                   </button>
                 </div>
               </div>
+              <div className="editor-frame">
+                <textarea
+                  value={text}
+                  onChange={(event) => setText(event.target.value)}
+                  spellCheck={false}
+                  aria-label="Text to synthesize"
+                />
+              </div>
+              <div className="editor-statusbar" aria-label="Editor status">
+                <span>{wordCount} words</span>
+                <span>{text.length} characters</span>
+                <span>{lineCount} lines</span>
+                <span>{editorModeLabel}</span>
+                <span>{cleanupSummary}</span>
+              </div>
             </div>
 
             <div className="workspace-column">
@@ -2704,9 +2727,19 @@ function App() {
                 <span aria-live="polite">{status}</span>
               </div>
               <div className="workspace-tabs" aria-label="Workspace sections">
-                <a href="#generated-output" className="active">Output</a>
-                <a href="#queue-panel">Queue</a>
-                <a href="#library-panel">Library</a>
+                {([['generated-output', 'Output'], ['queue-panel', 'Queue'], ['library-panel', 'Library']] as const).map(([target, label]) => {
+                  const isActive = activeWorkspaceHash === target || (target === 'generated-output' && !['queue-panel', 'library-panel'].includes(activeWorkspaceHash))
+                  return (
+                    <a
+                      key={target}
+                      href={`#${target}`}
+                      className={isActive ? 'active' : undefined}
+                      aria-current={isActive ? 'location' : undefined}
+                    >
+                      {label}
+                    </a>
+                  )
+                })}
               </div>
               <div className="output-session-card">
                 <div>
@@ -2715,7 +2748,7 @@ function App() {
                   <small>{activeEngineName} - {outputFormatLabel} - {captionModeLabel}</small>
                 </div>
                 <div className="output-session-meta">
-                  <strong>{activeSampleRate}</strong>
+                  <strong>{engine === 'browser' ? 'Device audio' : activeSampleRate}</strong>
                   <small>{status}</small>
                 </div>
                 <div className="output-waveform" aria-hidden="true" />
@@ -2888,7 +2921,7 @@ function App() {
                 <div className="compact-empty">
                   <Download size={28} aria-hidden="true" />
                   <strong>No saved clips</strong>
-                  <span>Saved generations appear here with download actions.</span>
+                  <span>Saved clips appear here with download actions.</span>
                 </div>
               </section>
             )}
@@ -2984,7 +3017,7 @@ function App() {
                   <small>{piperPlusSupport.supported ? 'Lazy-loads piper-plus, ONNX Runtime, WASM G2P, and a Tsukuyomi-chan model only when selected.' : 'Requires WebAssembly and IndexedDB support.'}</small>
                 </span>
               </label>
-              <div className="engine-status">
+              <div className={`engine-status ${engineStatusTone}`}>
                 <span className="status-dot" aria-hidden="true" />
                 <span>{engineStatus}</span>
               </div>
@@ -3041,7 +3074,7 @@ function App() {
                     ))}
                   </div>
                 ) : (
-                  <p className="cache-empty">Checking model cache...</p>
+                  <p className="cache-empty">Checking model cache…</p>
                 )}
               </div>
               <div className="diagnostics-panel" aria-label="Diagnostics export">
@@ -3595,7 +3628,7 @@ function App() {
                           <input
                             type="text"
                             className="pron-input"
-                            placeholder="Says as"
+                            placeholder="Sounds like"
                             value={newPronunciation}
                             onChange={(e) => setNewPronunciation(e.target.value)}
                             aria-label="Pronunciation replacement"
@@ -3797,8 +3830,12 @@ npm run deploy
         </footer>
 
         {toast ? (
-          <div className={`toast ${toast.tone}`} role={toast.tone === 'error' ? 'alert' : 'status'}>
-            {toast.tone === 'error' ? <AlertCircle size={17} aria-hidden="true" /> : <Info size={17} aria-hidden="true" />}
+          <div className={`toast ${toast.tone}`} role={toast.tone === 'ok' ? 'status' : 'alert'}>
+            {toast.tone === 'error'
+              ? <AlertCircle size={17} aria-hidden="true" />
+              : toast.tone === 'warn'
+                ? <TriangleAlert size={17} aria-hidden="true" />
+                : <Info size={17} aria-hidden="true" />}
             <span>{toast.message}</span>
           </div>
         ) : null}
