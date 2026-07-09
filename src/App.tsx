@@ -133,7 +133,8 @@ const RUNTIME_LICENSE_ROWS = [
   ['KittenTTS browser wrapper', 'MIT', 'Kitten model weights are Apache-2.0'],
   ['Supertonic ONNX model', 'OpenRAIL', 'HF-hosted English speed engine'],
   ['lamejs MP3 encoder', 'LGPL-3.0', 'MP3 export path'],
-  ['signalsmith-stretch, fflate', 'MIT', 'Pitch shift and ZIP/EPUB parsing'],
+  ['pdfjs-dist', 'Apache-2.0', 'Local PDF text extraction'],
+  ['signalsmith-stretch, fflate', 'MIT', 'Pitch shift and ZIP/EPUB/DOCX parsing'],
   ['lucide-react', 'ISC', 'Interface icons'],
 ]
 
@@ -1928,6 +1929,34 @@ function App() {
     }
   }
 
+  async function handleDocumentImport(file: File) {
+    try {
+      const extension = file.name.toLowerCase().endsWith('.pdf') ? 'PDF' : 'DOCX'
+      setStatus(`Parsing ${extension}…`)
+      const { importDocumentFile } = await import('./lib/document-import.ts')
+      const imported = await importDocumentFile(file)
+      const cleaned = cleanupText(imported.text, cleanup)
+      if (!cleaned.trim()) {
+        showToast({ tone: 'warn', message: `No readable text found in ${file.name} after cleanup.` })
+        return
+      }
+
+      const trimmed = cleaned.slice(0, MAX_TEXT_CHARS)
+      const chunkCount = splitInput(trimmed, false).length
+      setText(trimmed)
+      showToast({
+        tone: cleaned.length > MAX_TEXT_CHARS ? 'warn' : 'ok',
+        message: cleaned.length > MAX_TEXT_CHARS
+          ? `${file.name} imported from ${imported.kind.toUpperCase()} and trimmed to ${MAX_TEXT_CHARS} characters; ${chunkCount} cleaned chunks ready.`
+          : `${file.name} imported from ${imported.kind.toUpperCase()}; ${chunkCount} cleaned chunks ready.`,
+      })
+    } catch (err) {
+      showToast({ tone: 'error', message: err instanceof Error ? err.message : 'Document import failed.' })
+    } finally {
+      setStatus('Ready')
+    }
+  }
+
   function handleFileUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0]
     event.currentTarget.value = ''
@@ -1936,13 +1965,19 @@ function App() {
       return
     }
 
-    if (file.name.toLowerCase().endsWith('.epub')) {
+    const lowerName = file.name.toLowerCase()
+    if (lowerName.endsWith('.epub')) {
       handleEpubImport(file)
       return
     }
 
-    if (!file.name.toLowerCase().endsWith('.txt') && file.type !== 'text/plain') {
-      showToast({ tone: 'warn', message: 'Import supports .txt and .epub files.' })
+    if (lowerName.endsWith('.pdf') || lowerName.endsWith('.docx') || file.type === 'application/pdf' || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+      handleDocumentImport(file)
+      return
+    }
+
+    if (!lowerName.endsWith('.txt') && file.type !== 'text/plain') {
+      showToast({ tone: 'warn', message: 'Import supports .txt, .epub, .pdf, and .docx files.' })
       return
     }
 
@@ -2034,7 +2069,13 @@ function App() {
                 <Upload size={16} aria-hidden="true" />
                 Open
               </button>
-              <input ref={fileInputRef} type="file" accept=".txt,.epub,text/plain,application/epub+zip" onChange={handleFileUpload} hidden />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".txt,.epub,.pdf,.docx,text/plain,application/epub+zip,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                onChange={handleFileUpload}
+                hidden
+              />
               <select
                 className="pause-select"
                 value={pauseDuration}

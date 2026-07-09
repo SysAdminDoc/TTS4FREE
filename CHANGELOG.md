@@ -10,6 +10,7 @@
 - Added `npm run smoke`, a local Playwright production-build smoke check for desktop/mobile rendering, theme switching, diagnostics copy, queue controls, M4B fallback messaging, screenshots, and unexpected console-noise regression.
 - Expanded text cleanup with reversible controls for footnotes/references, repeated page headers/footers, audiobook number/unit normalization, and ISBN/DOI/cataloging metadata removal.
 - Added durable read-along playback resume with previous/next sentence controls for generated clips, saved library clips, and completed queue chunks.
+- Added local PDF and DOCX import adapters; PDF text extraction uses lazy PDF.js, DOCX parsing uses existing ZIP/XML tooling, and imports run through the existing cleanup toggles.
 
 ### Changed
 - Split EPUB parsing and multilingual Kokoro runtime paths into on-demand chunks; the production worker bundle now stays small on first load and the fflate static/dynamic import warning is gone.

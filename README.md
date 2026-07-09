@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/platform-GitHub%20Pages-24292f.svg)](https://sysadmindoc.github.io/BetterTTS/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178c6.svg)](#)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](#)
-[![Tests](https://img.shields.io/badge/tests-141%20passing-53d889.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-147%20passing-53d889.svg)](#)
 
 **Free client-side text-to-speech studio.** Kokoro 82M, Supertonic, and KittenTTS run entirely in your browser — no server, no signup, no usage caps (5,000 characters per run, unlimited runs). Export WAV, MP3, Opus, or chaptered M4B — keep everything private.
 
@@ -65,6 +65,7 @@ Every cloud TTS service gates you behind signups, character limits, and paid tie
 ### Studio Features
 - **Dialog mode** — `[speaker:Alice]` line prefixes map to different voices for multi-character scripts
 - **Follow-along transcript** — click-to-seek sentence highlighting synced to playback, durable resume, and previous/next sentence controls
+- **Document import** — open TXT, EPUB, PDF, or DOCX files; PDF/DOCX text is cleaned with the same reversible audiobook cleanup controls before synthesis
 - **Article import** — paste any URL and Readability extracts the text (plus Android share-target support)
 - **Text cleanup** — skip citations, footnotes, references, repeated page headers/footers, book metadata, URLs, markdown, and normalize audiobook numbers/units before synthesis
 - **Voice preview** — one-click preview for each voice with session-cached audio
@@ -129,9 +130,10 @@ Run `npm run smoke` for a local production-build browser check. It serves `dist/
 | M4B Export | WebCodecs AAC preflight + direct ISO BMFF writer with QuickTime/Nero chapter metadata |
 | Pitch Shifting | `signalsmith-stretch` (MIT, AudioWorklet/WASM) |
 | Phonemization | `phonemizer` for English + `ephone`/eSpeak NG WASM for multilingual Kokoro |
+| Document Import | `pdfjs-dist` for PDF text; `fflate` + XML parsing for EPUB/DOCX |
 | ZIP Packaging | `fflate` |
 | Icons | `lucide-react` |
-| Testing | Vitest (141 assertions across 18 suites) + Playwright smoke |
+| Testing | Vitest (147 assertions across 19 suites) + Playwright smoke |
 | Linting | oxlint |
 | Hosting | GitHub Pages (static, no backend) |
 
@@ -150,15 +152,18 @@ src/
 │   ├── kokoro-timestamps.ts # Timestamped Kokoro loader and word cue alignment
 │   ├── kokoro-worker.ts     # Web Worker client interface
 │   ├── diagnostics.ts       # Local browser/capability/support export bundle
+│   ├── document-import.ts   # PDF/DOCX text extraction
+│   ├── playback.ts          # Read-along resume and sentence navigation
 │   ├── supertonic.ts        # Supertonic pipeline loader and voice metadata
 │   ├── kitten.ts            # KittenTTS WebGPU wrapper, metadata, and WAV parser
 │   ├── encode.ts            # WAV/MP3 encoding, pitch shift, BGM mixing
 │   ├── m4b.ts               # WebCodecs AAC + M4B chapter muxing
 │   ├── wav.ts               # Raw PCM → WAV encoder
-│   ├── text.ts              # Sentence splitting, pause parsing, slugify
+│   ├── text.ts              # Sentence splitting, pause parsing, cleanup
 │   ├── voices.ts            # 41-voice Kokoro catalog with quality grades
 │   ├── webspeech.ts         # Browser Speech API wrapper
 │   ├── subtitles.ts         # SRT/VTT serializers
+│   ├── queue.ts             # IndexedDB persistent generation queue
 │   └── library.ts           # IndexedDB clip storage
 ├── worker/
 │   └── tts.worker.ts        # Off-thread Kokoro inference
@@ -240,7 +245,8 @@ BetterTTS application code is MIT. Runtime dependencies and model paths carry th
 | `kitten-tts-webgpu` | MIT | KittenTTS browser runtime; Kitten model weights are Apache-2.0 |
 | Supertonic ONNX model | OpenRAIL | HF-hosted English speed engine |
 | `@breezystack/lamejs` | LGPL-3.0 | MP3 export |
-| `signalsmith-stretch`, `fflate` | MIT | Pitch shift and ZIP/EPUB parsing |
+| `pdfjs-dist` | Apache-2.0 | Local PDF text extraction |
+| `signalsmith-stretch`, `fflate` | MIT | Pitch shift and ZIP/EPUB/DOCX parsing |
 | `lucide-react` | ISC | Interface icons |
 
 Review runtime package licenses locally with:

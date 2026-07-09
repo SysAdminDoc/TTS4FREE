@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, rmSync } from 'node:fs'
 import { readFile, stat, writeFile } from 'node:fs/promises'
 import { extname, join, normalize } from 'node:path'
 import { chromium } from 'playwright'
+import { zipSync } from 'fflate'
 
 const root = process.cwd()
 const port = Number(process.env.BETTERTTS_SMOKE_PORT ?? 4873)
@@ -33,6 +34,26 @@ function runChecked(name, args) {
   if (result.stderr) process.stderr.write(result.stderr)
   if (result.error) throw result.error
   if (result.status !== 0) process.exit(result.status ?? 1)
+}
+
+function makeDocxUpload() {
+  const documentXml = `<?xml version="1.0"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:r><w:t>Imported DOCX body.</w:t></w:r></w:p>
+    <w:p><w:r><w:t>Repeated Header</w:t></w:r></w:p>
+    <w:p><w:r><w:t>Second cleaned paragraph.</w:t></w:r></w:p>
+  </w:body>
+</w:document>`
+  const zipped = zipSync({
+    '[Content_Types].xml': new TextEncoder().encode('<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>'),
+    'word/document.xml': new TextEncoder().encode(documentXml),
+  })
+  return {
+    name: 'smoke.docx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    buffer: Buffer.from(zipped),
+  }
 }
 
 async function seedCompletedQueueJob(page, id) {
@@ -208,6 +229,17 @@ async function runSmoke() {
     for (const label of ['Skip citations', 'Drop page headers', 'Skip footnotes', 'Normalize numbers', 'Drop book metadata']) {
       await desktop.page.getByLabel(label).waitFor({ timeout: 20000 })
     }
+
+    console.log('Checking DOCX and unsupported file import...')
+    const fileInput = desktop.page.locator('input[type="file"]').first()
+    await fileInput.setInputFiles(makeDocxUpload())
+    await desktop.page.getByText(/smoke\.docx imported from DOCX/).waitFor({ timeout: 20000 })
+    const importedText = await desktop.page.getByLabel('Text to synthesize').inputValue()
+    if (!importedText.includes('Imported DOCX body.') || !importedText.includes('Second cleaned paragraph.')) {
+      throw new Error(`DOCX import did not populate the editor: ${importedText}`)
+    }
+    await fileInput.setInputFiles({ name: 'smoke.rtf', mimeType: 'application/rtf', buffer: Buffer.from('unsupported') })
+    await desktop.page.getByText('Import supports .txt, .epub, .pdf, and .docx files.').waitFor({ timeout: 20000 })
 
     console.log('Checking queue playback controls...')
     const queue = desktop.page.getByLabel('Generation queue')

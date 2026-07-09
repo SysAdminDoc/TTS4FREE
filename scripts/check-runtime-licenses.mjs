@@ -10,6 +10,7 @@ const expectedLicenses = [
   ['kitten-tts-webgpu', 'MIT'],
   ['kokoro-js', 'Apache-2.0'],
   ['lucide-react', 'ISC'],
+  ['pdfjs-dist', 'Apache-2.0'],
   ['phonemizer', 'Apache-2.0'],
   ['signalsmith-stretch', 'MIT'],
 ]
