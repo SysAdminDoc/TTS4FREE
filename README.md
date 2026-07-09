@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/platform-GitHub%20Pages-24292f.svg)](https://sysadmindoc.github.io/BetterTTS/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178c6.svg)](#)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](#)
-[![Tests](https://img.shields.io/badge/tests-122%20passing-53d889.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-126%20passing-53d889.svg)](#)
 
 **Free client-side text-to-speech studio.** Kokoro 82M, Supertonic, and KittenTTS run entirely in your browser — no server, no signup, no usage caps (5,000 characters per run, unlimited runs). Export WAV, MP3, Opus, or chaptered M4B — keep everything private.
 
@@ -83,6 +83,7 @@ Every cloud TTS service gates you behind signups, character limits, and paid tie
 - **Content-Security-Policy** baked into production builds
 - **Persistent storage** request + usage meter; clip library auto-evicts past a 200 MB cap
 - **Offline pack manager** — inspect per-engine model cache size, distinguish the app-shell cache, prefetch the selected Kokoro q8 voice pack, and selectively clear stale engine caches
+- **Diagnostics export** — copy or download a local JSON support bundle with browser, WebGPU, codec, storage, cache, model-route, and recent sanitized error state
 - **Media Session API** — lock-screen play/pause controls for generated audio
 - **Dark and light themes** with `prefers-color-scheme` detection and zero-flash boot
 - **Responsive layout** — works on desktop and mobile
@@ -108,6 +109,10 @@ npm run build
 
 Open `http://localhost:5173/BetterTTS/` in your browser.
 
+## Troubleshooting
+
+Use **Control console -> Diagnostics -> Copy JSON** when reporting a local browser/runtime issue. The bundle includes app version, browser details, WebGPU adapter status, WebCodecs AAC/Opus support, storage quota, model-cache summary, selected model routes, and recent sanitized warnings/errors. It does not include script text or imported article URLs.
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -121,7 +126,7 @@ Open `http://localhost:5173/BetterTTS/` in your browser.
 | Phonemization | `phonemizer` for English + `ephone`/eSpeak NG WASM for multilingual Kokoro |
 | ZIP Packaging | `fflate` |
 | Icons | `lucide-react` |
-| Testing | Vitest (122 assertions across 16 suites) |
+| Testing | Vitest (126 assertions across 17 suites) |
 | Linting | oxlint |
 | Hosting | GitHub Pages (static, no backend) |
 
@@ -139,6 +144,7 @@ src/
 │   ├── kokoro-multilingual.ts # ephone + direct Kokoro model path for es/fr/it/pt-BR/hi
 │   ├── kokoro-timestamps.ts # Timestamped Kokoro loader and word cue alignment
 │   ├── kokoro-worker.ts     # Web Worker client interface
+│   ├── diagnostics.ts       # Local browser/capability/support export bundle
 │   ├── supertonic.ts        # Supertonic pipeline loader and voice metadata
 │   ├── kitten.ts            # KittenTTS WebGPU wrapper, metadata, and WAV parser
 │   ├── encode.ts            # WAV/MP3 encoding, pitch shift, BGM mixing

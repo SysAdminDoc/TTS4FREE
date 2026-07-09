@@ -23,8 +23,15 @@ import {
 } from 'lucide-react'
 import { Component, type ChangeEvent, type ErrorInfo, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
+import {
+  collectDiagnostics,
+  installGlobalDiagnosticsCapture,
+  recordDiagnosticEvent,
+  type DiagnosticsSelection,
+} from './lib/diagnostics.ts'
 import { type AudioFormat, encodeAudio, formatExtension, mixBgm, opusSupported, shiftPitch } from './lib/encode.ts'
 import { KOKORO_SAMPLE_RATE, type ProgressInfo, type RawAudioLike, loadKokoro, probeWebGpu, resetKokoroSession } from './lib/kokoro.ts'
+import { KOKORO_HF_RESOLVE_PREFIX, KOKORO_LOCAL_MODEL_PREFIX, KOKORO_MODEL_ID } from './lib/kokoro-assets.ts'
 import { loadTimestampedKokoro, resetTimestampedKokoroSession, synthesizeTimestampedKokoro } from './lib/kokoro-timestamps.ts'
 import { needsDirectKokoroPath } from './lib/kokoro-direct.ts'
 import { generateWorker, loadKokoroWorker, resetWorker } from './lib/kokoro-worker.ts'
@@ -52,7 +59,7 @@ import {
   hasKittenWebGpu,
   synthesizeKitten,
 } from './lib/kitten.ts'
-import { SUPERTONIC_DEFAULT_STEPS, SUPERTONIC_SAMPLE_RATE, SUPERTONIC_VOICES, type SupertonicVoiceId, clampSupertonicSpeed, loadSupertonic, synthesizeSupertonic } from './lib/supertonic.ts'
+import { SUPERTONIC_DEFAULT_STEPS, SUPERTONIC_MODEL_ID, SUPERTONIC_SAMPLE_RATE, SUPERTONIC_VOICES, type SupertonicVoiceId, clampSupertonicSpeed, loadSupertonic, supertonicVoiceUrl, synthesizeSupertonic } from './lib/supertonic.ts'
 import { type CleanupOptions, DEFAULT_CLEANUP, PAUSE_TAG, cleanupText, formatBytes, parseDialogLines, parsePauseTags, slugify, splitInput, splitIntoSentences } from './lib/text.ts'
 import { KOKORO_LANGUAGES, VOICES, isEnglishKokoroLocale, kokoroLanguageForLocale, kokoroLanguageForVoice, type KokoroLocale } from './lib/voices.ts'
 import { type Cue, toSRT, toVTT } from './lib/subtitles.ts'
@@ -154,6 +161,27 @@ function m4bCapabilityTone(capability: M4bCapability | null): 'ok' | 'warn' | 'm
 
 function m4bCapabilityText(capability: M4bCapability | null): string {
   return capability?.message ?? 'Checking M4B WebCodecs AAC support...'
+}
+
+async function copyTextToClipboard(value: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value)
+    return
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  textarea.style.top = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  try {
+    if (!document.execCommand('copy')) throw new Error('Clipboard copy is unavailable in this browser.')
+  } finally {
+    document.body.removeChild(textarea)
+  }
 }
 
 async function getDurationLabel(blob: Blob) {
@@ -418,6 +446,7 @@ function App() {
   )
   const [modelCache, setModelCache] = useState<ModelCacheSummary | null>(null)
   const [cacheAction, setCacheAction] = useState<string | null>(null)
+  const [diagnosticsAction, setDiagnosticsAction] = useState<'copy' | 'download' | null>(null)
   const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([])
   const [browserVoiceUri, setBrowserVoiceUri] = useState('')
   const [previewingVoice, setPreviewingVoice] = useState<string | null>(null)
@@ -517,6 +546,8 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(() => installGlobalDiagnosticsCapture(), [])
+
   useEffect(() => {
     let cancelled = false
     checkM4bCapability()
@@ -601,6 +632,88 @@ function App() {
     }
   }
 
+  function buildDiagnosticsSelection(): DiagnosticsSelection {
+    const baseUrl = typeof location === 'undefined' ? 'https://sysadmindoc.github.io' : location.origin
+    const normalizedBase = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`
+    const modelRoutes: Record<string, string> = {
+      kokoroModel: KOKORO_MODEL_ID,
+      kokoroRemoteBase: KOKORO_HF_RESOLVE_PREFIX,
+      kokoroLocalBase: new URL(`${normalizedBase}${KOKORO_LOCAL_MODEL_PREFIX}`, baseUrl).toString(),
+      supertonicModel: SUPERTONIC_MODEL_ID,
+      kittenPackage: 'kitten-tts-webgpu',
+    }
+
+    if (engine === 'supertonic') modelRoutes.supertonicVoice = supertonicVoiceUrl(selectedSupertonicVoice.id)
+    if (engine === 'kokoro') modelRoutes.kokoroVoice = selectedVoice.id
+    if (engine === 'kitten') modelRoutes.kittenModel = selectedKittenModel.id
+
+    return {
+      engine,
+      engineStatus,
+      runtime: runtimeLabel,
+      voice: engine === 'kokoro'
+        ? selectedVoice.id
+        : engine === 'supertonic'
+          ? selectedSupertonicVoice.id
+          : engine === 'kitten'
+            ? selectedKittenVoice.id
+            : browserVoiceUri || 'browser-default',
+      language: engine === 'kokoro' ? locale : undefined,
+      format: audioFormat,
+      bitrate: mp3Bitrate,
+      speed,
+      selectedModel: engine === 'kokoro'
+        ? `${KOKORO_MODEL_ID} (${kokoroRuntimeLabel})`
+        : engine === 'supertonic'
+          ? SUPERTONIC_MODEL_ID
+          : engine === 'kitten'
+            ? `kitten-tts-webgpu ${selectedKittenModel.id}`
+            : 'Web Speech API',
+      modelRoutes,
+    }
+  }
+
+  async function buildDiagnosticsJson(): Promise<string> {
+    const diagnostics = await collectDiagnostics({
+      appVersion: APP_VERSION,
+      selection: buildDiagnosticsSelection(),
+    })
+    return JSON.stringify(diagnostics, null, 2)
+  }
+
+  async function handleCopyDiagnostics() {
+    if (diagnosticsAction) return
+    setDiagnosticsAction('copy')
+    try {
+      await copyTextToClipboard(await buildDiagnosticsJson())
+      showToast({ tone: 'ok', message: 'Diagnostics copied to clipboard.' })
+    } catch (err) {
+      showToast({ tone: 'error', message: err instanceof Error ? err.message : 'Could not copy diagnostics.' })
+    } finally {
+      setDiagnosticsAction(null)
+    }
+  }
+
+  async function handleDownloadDiagnostics() {
+    if (diagnosticsAction) return
+    setDiagnosticsAction('download')
+    try {
+      const json = await buildDiagnosticsJson()
+      const blob = new Blob([json], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `bettertts-diagnostics-${timestamp()}.json`
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+      showToast({ tone: 'ok', message: 'Diagnostics JSON downloaded.' })
+    } catch (err) {
+      showToast({ tone: 'error', message: err instanceof Error ? err.message : 'Could not export diagnostics.' })
+    } finally {
+      setDiagnosticsAction(null)
+    }
+  }
+
   useEffect(() => {
     listClips().then(setLibrary).catch(() => {})
     listJobs().then((jobs) => {
@@ -675,6 +788,9 @@ function App() {
   }
 
   function showToast(nextToast: Toast) {
+    if (nextToast.tone === 'warn' || nextToast.tone === 'error') {
+      recordDiagnosticEvent(nextToast.tone, nextToast.message, 'toast')
+    }
     setToast(nextToast)
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
     toastTimerRef.current = setTimeout(() => {
@@ -2056,6 +2172,31 @@ function App() {
                 ) : (
                   <p className="cache-empty">Checking model cache...</p>
                 )}
+              </div>
+              <div className="diagnostics-panel" aria-label="Diagnostics export">
+                <div className="cache-manager-head">
+                  <span>
+                    <strong>Diagnostics</strong>
+                    <small>Local support bundle. No script text or imported URLs.</small>
+                  </span>
+                </div>
+                <div className="diagnostics-facts">
+                  <span>WebGPU: {runtimeLabel}</span>
+                  <span>Opus: {opusSupported() ? 'available' : 'unavailable'}</span>
+                  <span>M4B: {m4bCapability?.supported ? 'AAC ready' : 'fallback'}</span>
+                  <span>Storage: {storageEstimate ?? 'unknown'}</span>
+                </div>
+                <div className="diagnostics-actions">
+                  <button type="button" onClick={handleCopyDiagnostics} disabled={diagnosticsAction !== null}>
+                    {diagnosticsAction === 'copy' ? <Loader2 size={13} aria-hidden="true" /> : <SquareCode size={13} aria-hidden="true" />}
+                    Copy JSON
+                  </button>
+                  <button type="button" onClick={handleDownloadDiagnostics} disabled={diagnosticsAction !== null}>
+                    {diagnosticsAction === 'download' ? <Loader2 size={13} aria-hidden="true" /> : <Download size={13} aria-hidden="true" />}
+                    Download JSON
+                  </button>
+                </div>
+                <small>{m4bCapabilityText(m4bCapability)}</small>
               </div>
             </fieldset>
 

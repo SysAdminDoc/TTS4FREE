@@ -6,6 +6,7 @@
 - Added an offline pack manager in the control console with per-engine cache status, app-shell separation, Kokoro q8 prefetch, and selective cache clearing.
 - Added README and in-app runtime license disclosure, including the GPL-3.0-or-later ephone/eSpeak multilingual path and a local runtime license check command.
 - Added M4B/WebCodecs AAC capability preflight, browser-specific unsupported messages, and a chaptered ZIP fallback manifest for queue exports.
+- Added a diagnostics export panel that copies/downloads a sanitized local support bundle with browser, WebGPU, codec, storage, cache, model-route, and recent warning/error state.
 
 ### Changed
 - Split EPUB parsing and multilingual Kokoro runtime paths into on-demand chunks; the production worker bundle now stays small on first load and the fflate static/dynamic import warning is gone.
