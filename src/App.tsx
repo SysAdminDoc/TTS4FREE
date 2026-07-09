@@ -1427,7 +1427,19 @@ function App() {
             await loadKokoroWorker('wasm', 'q8', onProgress)
             return { samples: await generateWorker(text, voice, spd, bin), sampleRate: KOKORO_SAMPLE_RATE }
           }
-          return { samples: await generateNative(text, voice, spd), sampleRate: KOKORO_SAMPLE_RATE }
+          try {
+            return { samples: await generateNative(text, voice, spd), sampleRate: KOKORO_SAMPLE_RATE }
+          } catch (err) {
+            // A host crash fails only the in-flight chunk; the process respawns
+            // lazily, so reload once and retry before surfacing the failure —
+            // long queue runs self-heal instead of failing every later chunk.
+            if (err instanceof Error && /crashed|not loaded/i.test(err.message)) {
+              recordDiagnosticEvent('warn', err, 'native.synthesize-retry')
+              await loadNativeKokoro(onProgress)
+              return { samples: await generateNative(text, voice, spd), sampleRate: KOKORO_SAMPLE_RATE }
+            }
+            throw err
+          }
         },
       }
     }
