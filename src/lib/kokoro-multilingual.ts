@@ -1,5 +1,6 @@
 import { fetchVoiceBin } from './voice-mix.ts'
 import { kokoroLanguageForVoice, type KokoroLanguage } from './voices.ts'
+export { needsDirectKokoroPath } from './kokoro-direct.ts'
 
 type TensorLike = {
   data?: Float32Array | number[]
@@ -26,11 +27,6 @@ const STYLE_MAX_TOKENS = 509
 
 let romanceEphonePromise: Promise<EphoneModule> | null = null
 let allEphonePromise: Promise<EphoneModule> | null = null
-
-export function needsDirectKokoroPath(voice: string, voiceBin?: Float32Array): boolean {
-  const language = kokoroLanguageForVoice(voice).phonemeLanguage
-  return Boolean(voiceBin) || (language !== 'en-us' && language !== 'en')
-}
 
 export async function synthesizeDirectKokoro(
   tts: unknown,

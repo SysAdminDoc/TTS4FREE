@@ -48,4 +48,7 @@ function cspInjector(): Plugin {
 export default defineConfig({
   base: '/BetterTTS/',
   plugins: [react(), swBuildId(), cspInjector()],
+  worker: {
+    format: 'es',
+  },
 })

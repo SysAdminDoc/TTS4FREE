@@ -1,6 +1,6 @@
 import { KOKORO_MODEL_ID, installKokoroAssetFallback } from '../lib/kokoro-assets.ts'
 import type { ProgressInfo } from '../lib/kokoro.ts'
-import { needsDirectKokoroPath, synthesizeDirectKokoro } from '../lib/kokoro-multilingual.ts'
+import { needsDirectKokoroPath } from '../lib/kokoro-direct.ts'
 
 type KokoroModule = typeof import('kokoro-js')
 type KokoroInstance = Awaited<ReturnType<KokoroModule['KokoroTTS']['from_pretrained']>>
@@ -57,6 +57,7 @@ self.addEventListener('message', async (e: MessageEvent<WorkerRequest>) => {
       let samples: Float32Array | undefined
 
       if (needsDirectKokoroPath(msg.voice, msg.voiceBin)) {
+        const { synthesizeDirectKokoro } = await import('../lib/kokoro-multilingual.ts')
         const audio = await synthesizeDirectKokoro(tts, msg.text, msg.voice, msg.speed, msg.voiceBin)
         samples = audio?.samples
       } else {

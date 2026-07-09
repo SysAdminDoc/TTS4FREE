@@ -26,13 +26,12 @@ import './App.css'
 import { type AudioFormat, encodeAudio, formatExtension, mixBgm, opusSupported, shiftPitch } from './lib/encode.ts'
 import { KOKORO_SAMPLE_RATE, type ProgressInfo, type RawAudioLike, loadKokoro, probeWebGpu, resetKokoroSession } from './lib/kokoro.ts'
 import { loadTimestampedKokoro, resetTimestampedKokoroSession, synthesizeTimestampedKokoro } from './lib/kokoro-timestamps.ts'
-import { needsDirectKokoroPath, synthesizeDirectKokoro } from './lib/kokoro-multilingual.ts'
+import { needsDirectKokoroPath } from './lib/kokoro-direct.ts'
 import { generateWorker, loadKokoroWorker, resetWorker } from './lib/kokoro-worker.ts'
 import { type VoiceMixEntry, blendVoiceBins, fetchVoiceBin, formatMixFormula } from './lib/voice-mix.ts'
 import { type ClipRecord, clearLibrary, deleteClip, enforceLibraryCap, getClipBlob, listClips, saveClip } from './lib/library.ts'
 import { buildM4bFromBlobs, m4bSupported } from './lib/m4b.ts'
 import { type QueueJob, deleteJob, getChunkBlob, jobProgress, listJobs, saveChunkBlob, saveJob } from './lib/queue.ts'
-import { parseEpub } from './lib/epub.ts'
 import {
   KITTEN_DEFAULT_MODEL,
   KITTEN_MODELS,
@@ -651,7 +650,10 @@ function App() {
     const tts = await loadKokoro(onProgress)
     return {
       synthesize: async (text, voice, spd, bin) => {
-        if (needsDirectKokoroPath(voice, bin)) return synthesizeDirectKokoro(tts, text, voice, spd, bin)
+        if (needsDirectKokoroPath(voice, bin)) {
+          const { synthesizeDirectKokoro } = await import('./lib/kokoro-multilingual.ts')
+          return synthesizeDirectKokoro(tts, text, voice, spd, bin)
+        }
         const audio = (await tts.generate(text, { voice: voice as never, speed: spd })) as RawAudioLike
         return audio.audio ? { samples: audio.audio, sampleRate: KOKORO_SAMPLE_RATE } : null
       },
@@ -1358,6 +1360,7 @@ function App() {
   async function handleEpubImport(file: File) {
     try {
       setStatus('Parsing EPUB…')
+      const { parseEpub } = await import('./lib/epub.ts')
       const chapters = await parseEpub(file)
       const allChunks = chapters.flatMap((ch, chapterIndex) => {
         const cleaned = cleanupText(ch.text, cleanup)
