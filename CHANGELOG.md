@@ -12,6 +12,7 @@
 - Added durable read-along playback resume with previous/next sentence controls for generated clips, saved library clips, and completed queue chunks.
 - Added local PDF and DOCX import adapters; PDF text extraction uses lazy PDF.js, DOCX parsing uses existing ZIP/XML tooling, and imports run through the existing cleanup toggles.
 - Added inline queue segment/chapter editing with safe single-chunk regeneration; existing audio and exports stay intact until replacement synthesis succeeds.
+- Added guarded Cross-Origin Storage detection plus Transformers.js 4.3 upgrade readiness diagnostics without changing the default per-origin model cache behavior.
 
 ### Changed
 - Split EPUB parsing and multilingual Kokoro runtime paths into on-demand chunks; the production worker bundle now stays small on first load and the fflate static/dynamic import warning is gone.

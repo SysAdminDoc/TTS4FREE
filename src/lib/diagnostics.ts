@@ -1,6 +1,12 @@
 import { opusSupported } from './encode.ts'
 import { checkM4bCapability, type M4bCapability } from './m4b.ts'
 import { readModelCacheStatus, type ModelCacheSummary } from './model-cache.ts'
+import {
+  detectCrossOriginStorage,
+  transformersUpgradeReadiness,
+  type CrossOriginStorageStatus,
+  type TransformersUpgradeReadiness,
+} from './runtime-readiness.ts'
 
 export type DiagnosticLevel = 'warn' | 'error'
 
@@ -68,6 +74,8 @@ export type DiagnosticsBundle = {
       opus: boolean
       aacM4b: M4bCapability
     }
+    crossOriginStorage: CrossOriginStorageStatus
+    transformers: TransformersUpgradeReadiness
   }
   storage: {
     browser: StorageDiagnostics
@@ -85,6 +93,7 @@ type NavigatorDiagnosticsLike = {
   platform?: string
   storage?: StorageManager
   userAgent?: string
+  crossOriginStorage?: unknown
 }
 
 export type DiagnosticsProbes = {
@@ -96,6 +105,8 @@ export type DiagnosticsProbes = {
   cache?: () => Promise<ModelCacheSummary>
   m4b?: () => Promise<M4bCapability>
   opus?: () => boolean
+  crossOriginStorage?: () => CrossOriginStorageStatus
+  transformers?: () => TransformersUpgradeReadiness
   recentEvents?: () => DiagnosticEvent[]
 }
 
@@ -172,6 +183,24 @@ export async function collectDiagnostics(
       message: 'Could not verify M4B AAC support.',
     } satisfies M4bCapability),
   ])
+  const crossOriginStorage = readSyncSafely(
+    probes.crossOriginStorage ?? (() => detectCrossOriginStorage({ navigator: navigatorLike, secureContext: typeof isSecureContext === 'boolean' ? isSecureContext : null })),
+    {
+      api: 'navigator.crossOriginStorage',
+      exposed: false,
+      requestFileHandle: false,
+      secureContext: null,
+      usable: false,
+      defaultBehavior: 'disabled',
+      message: 'Could not verify Cross-Origin Storage support.',
+    } satisfies CrossOriginStorageStatus,
+  )
+  const transformers = readSyncSafely(probes.transformers ?? transformersUpgradeReadiness, {
+    currentVersion: 'unknown',
+    targetVersion: '4.3.0',
+    readyToSwitch: false,
+    criteria: [],
+  } satisfies TransformersUpgradeReadiness)
 
   return {
     schemaVersion: 1,
@@ -200,6 +229,8 @@ export async function collectDiagnostics(
         opus: readBooleanSafely(probes.opus ?? opusSupported),
         aacM4b: m4b,
       },
+      crossOriginStorage,
+      transformers,
     },
     storage: {
       browser: storage,
@@ -279,6 +310,14 @@ function readBooleanSafely(reader: () => boolean): boolean {
     return reader()
   } catch {
     return false
+  }
+}
+
+function readSyncSafely<T extends object>(reader: () => T, fallback: T): T & { error?: string } {
+  try {
+    return reader() as T & { error?: string }
+  } catch (err) {
+    return { ...fallback, error: sanitizeDiagnosticText(err) }
   }
 }
 

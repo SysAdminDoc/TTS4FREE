@@ -48,6 +48,11 @@ import {
   prefetchKokoroQ8Pack,
   readModelCacheStatus,
 } from './lib/model-cache.ts'
+import {
+  TRANSFORMERS_RUNTIME_VERSION,
+  detectCrossOriginStorage,
+  transformersUpgradeReadiness,
+} from './lib/runtime-readiness.ts'
 import { type QueueEngine, type QueueJob, deleteJob, getChunkBlob, jobProgress, listJobs, replaceQueueChunk, saveChunkBlob, saveJob } from './lib/queue.ts'
 import {
   clampResumeTime,
@@ -174,6 +179,10 @@ function m4bCapabilityTone(capability: M4bCapability | null): 'ok' | 'warn' | 'm
 
 function m4bCapabilityText(capability: M4bCapability | null): string {
   return capability?.message ?? 'Checking M4B WebCodecs AAC support...'
+}
+
+function crossOriginStorageShortLabel(usable: boolean): string {
+  return usable ? 'available' : 'not available'
 }
 
 async function copyTextToClipboard(value: string): Promise<void> {
@@ -754,6 +763,8 @@ function App() {
   const cacheRows = modelCache?.engines ?? []
   const modelCached = (cacheRows.find((row) => row.id === 'kokoro')?.entryCount ?? 0) > 0
   const m4bExportReady = m4bCapability?.supported === true
+  const crossOriginStorage = useMemo(() => detectCrossOriginStorage(), [])
+  const transformersReadiness = useMemo(() => transformersUpgradeReadiness(), [])
   const queueDisabledReason = engine === 'browser'
     ? 'Queue export is unavailable for Browser voices.'
     : !usableText.trim()
@@ -2559,6 +2570,10 @@ function App() {
                   <span>Opus: {opusSupported() ? 'available' : 'unavailable'}</span>
                   <span>M4B: {m4bCapability?.supported ? 'AAC ready' : 'fallback'}</span>
                   <span>Storage: {storageEstimate ?? 'unknown'}</span>
+                  <span title={crossOriginStorage.message}>COS: {crossOriginStorageShortLabel(crossOriginStorage.usable)}</span>
+                  <span title={transformersReadiness.criteria.map((criterion) => `${criterion.label}: ${criterion.met ? 'pass' : 'pending'}`).join(' | ')}>
+                    Transformers: {TRANSFORMERS_RUNTIME_VERSION}
+                  </span>
                 </div>
                 <div className="diagnostics-actions">
                   <button type="button" onClick={handleCopyDiagnostics} disabled={diagnosticsAction !== null}>

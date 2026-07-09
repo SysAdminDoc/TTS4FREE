@@ -69,6 +69,21 @@ describe('collectDiagnostics', () => {
       cache: async () => ({ supported: true, engines: [], totalBytes: 0, unknownSizeCount: 0 }),
       m4b: async () => ({ supported: false, reason: 'aac-unsupported', message: 'AAC missing' }),
       opus: () => true,
+      crossOriginStorage: () => ({
+        api: 'navigator.crossOriginStorage',
+        exposed: false,
+        requestFileHandle: false,
+        secureContext: true,
+        usable: false,
+        defaultBehavior: 'disabled',
+        message: 'Cross-Origin Storage is not exposed.',
+      }),
+      transformers: () => ({
+        currentVersion: '4.2.0',
+        targetVersion: '4.3.0',
+        readyToSwitch: false,
+        criteria: [],
+      }),
     })
 
     expect(bundle.generatedAt).toBe('2026-07-09T00:00:00.000Z')
@@ -77,6 +92,9 @@ describe('collectDiagnostics', () => {
     expect(bundle.capabilities.webGpu.status).toBe('no adapter available')
     expect(bundle.capabilities.webCodecs.opus).toBe(true)
     expect(bundle.capabilities.webCodecs.aacM4b.supported).toBe(false)
+    expect(bundle.capabilities.crossOriginStorage.defaultBehavior).toBe('disabled')
+    expect(bundle.capabilities.transformers.currentVersion).toBe('4.2.0')
+    expect(bundle.capabilities.transformers.readyToSwitch).toBe(false)
     expect(bundle.storage.browser.usagePct).toBe(10)
     expect(bundle.selection.modelRoutes.kokoroRemote).toContain('Kokoro-82M')
     expect(bundle.recentEvents[0].message).toBe('AAC unavailable')
