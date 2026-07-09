@@ -102,6 +102,8 @@ import { speakBrowser } from './lib/webspeech.ts'
 
 const APP_VERSION = '0.13.0'
 const MAX_TEXT_CHARS = 5000
+const MAX_IMPORT_BYTES = 25 * 1024 * 1024
+const ARTICLE_IMPORT_TIMEOUT_MS = 15000
 const EMPTY_VTT_URL = 'data:text/vtt;charset=utf-8,WEBVTT%0A%0A'
 
 type Engine = EngineId
@@ -184,6 +186,20 @@ function getInitialPiperFlag(): boolean {
 
 function timestamp() {
   return new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14)
+}
+
+function shortUiLabel(value: string, max = 80): string {
+  const normalized = value.replace(/\s+/g, ' ').trim()
+  if (normalized.length <= max) return normalized
+  return `${normalized.slice(0, Math.max(0, max - 3)).trimEnd()}...`
+}
+
+function importSizeError(file: File): Toast | null {
+  if (file.size <= MAX_IMPORT_BYTES) return null
+  return {
+    tone: 'warn',
+    message: `${shortUiLabel(file.name, 56)} is ${formatBytes(file.size)}. Import files must be ${formatBytes(MAX_IMPORT_BYTES)} or smaller.`,
+  }
 }
 
 function cacheStatusText(row: EngineCacheStatus, supported: boolean): string {
@@ -472,6 +488,7 @@ function ResultRow({ result, isSpeaking, onReplay, onShare, onSave }: ResultRowP
 type LibraryClipRowProps = {
   clip: ClipRecord
   onDeleted: (clipId: string) => void
+  onNotice: (toast: Toast) => void
 }
 
 function cueDataUrl(cues?: Cue[]): string | undefined {
@@ -479,8 +496,9 @@ function cueDataUrl(cues?: Cue[]): string | undefined {
   return `data:text/vtt;charset=utf-8,${encodeURIComponent(toVTT(cues))}`
 }
 
-function LibraryClipRow({ clip, onDeleted }: LibraryClipRowProps) {
+function LibraryClipRow({ clip, onDeleted, onNotice }: LibraryClipRowProps) {
   const [url, setUrl] = useState<string | null>(null)
+  const [busy, setBusy] = useState<'load' | 'download' | 'delete' | null>(null)
   const vttUrl = useMemo(() => cueDataUrl(clip.cues), [clip.cues])
 
   useEffect(() => {
@@ -491,29 +509,54 @@ function LibraryClipRow({ clip, onDeleted }: LibraryClipRowProps) {
 
   const loadPlayer = async () => {
     if (url) return
-    const blob = await getClipBlob(clip.id)
-    if (!blob) return
-    setUrl(URL.createObjectURL(blob))
+    setBusy('load')
+    try {
+      const blob = await getClipBlob(clip.id)
+      if (!blob) {
+        onNotice({ tone: 'warn', message: 'Saved audio is missing for this clip.' })
+        return
+      }
+      setUrl(URL.createObjectURL(blob))
+    } catch {
+      onNotice({ tone: 'error', message: 'Could not load saved audio.' })
+    } finally {
+      setBusy(null)
+    }
   }
 
   const downloadClip = async () => {
-    const blob = await getClipBlob(clip.id)
-    if (!blob) return
-    const downloadUrl = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = downloadUrl
-    a.download = clip.filename
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000)
+    setBusy('download')
+    try {
+      const blob = await getClipBlob(clip.id)
+      if (!blob) {
+        onNotice({ tone: 'warn', message: 'Saved audio is missing for this clip.' })
+        return
+      }
+      const downloadUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = downloadUrl
+      a.download = clip.filename
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000)
+    } catch {
+      onNotice({ tone: 'error', message: 'Could not download saved audio.' })
+    } finally {
+      setBusy(null)
+    }
   }
 
   const removeClip = () => {
+    setBusy('delete')
     deleteClip(clip.id)
       .then(() => {
         if (url) URL.revokeObjectURL(url)
         onDeleted(clip.id)
+        onNotice({ tone: 'ok', message: `Removed ${shortUiLabel(clip.label, 48)} from the library.` })
       })
-      .catch(() => {})
+      .catch(() => {
+        onNotice({ tone: 'error', message: 'Could not remove this saved clip.' })
+      })
+      .finally(() => setBusy(null))
   }
 
   return (
@@ -529,16 +572,16 @@ function LibraryClipRow({ clip, onDeleted }: LibraryClipRowProps) {
         <PlaybackAudio playbackKey={`clip:${clip.id}`} src={url} label={clip.filename} cues={clip.cues} vttUrl={vttUrl} />
       ) : null}
       <div className="result-actions">
-        <button type="button" onClick={loadPlayer}>
-          <Play size={16} aria-hidden="true" />
+        <button type="button" onClick={loadPlayer} disabled={busy !== null}>
+          {busy === 'load' ? <Loader2 size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}
           {url ? 'Loaded' : 'Play'}
         </button>
-        <button type="button" onClick={downloadClip}>
-          <Download size={16} aria-hidden="true" />
+        <button type="button" onClick={downloadClip} disabled={busy !== null}>
+          {busy === 'download' ? <Loader2 size={16} aria-hidden="true" /> : <Download size={16} aria-hidden="true" />}
           Download
         </button>
-        <button type="button" onClick={removeClip}>
-          <Trash2 size={16} aria-hidden="true" />
+        <button type="button" onClick={removeClip} disabled={busy !== null} aria-label={`Remove ${clip.label}`}>
+          {busy === 'delete' ? <Loader2 size={16} aria-hidden="true" /> : <Trash2 size={16} aria-hidden="true" />}
         </button>
       </div>
     </div>
@@ -551,13 +594,15 @@ type QueueChunkPlayerProps = {
   format: AudioFormat
   regenerating: boolean
   onRegenerate: (jobId: string, chunkIndex: number, nextText: string, nextTitle?: string) => Promise<void>
+  onNotice: (toast: Toast) => void
 }
 
-function QueueChunkPlayer({ jobId, chunk, format, regenerating, onRegenerate }: QueueChunkPlayerProps) {
+function QueueChunkPlayer({ jobId, chunk, format, regenerating, onRegenerate, onNotice }: QueueChunkPlayerProps) {
   const [url, setUrl] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [draftText, setDraftText] = useState(chunk.text)
   const [draftTitle, setDraftTitle] = useState(chunk.chapterTitle ?? '')
+  const [loading, setLoading] = useState(false)
   const vttUrl = useMemo(() => cueDataUrl(chunk.cues), [chunk.cues])
   const label = `Chunk ${chunk.index + 1}: ${chunk.chapterTitle ?? chunk.text.slice(0, 38)}`
 
@@ -583,9 +628,19 @@ function QueueChunkPlayer({ jobId, chunk, format, regenerating, onRegenerate }: 
 
   const loadPlayer = async () => {
     if (url) return
-    const blob = await getChunkBlob(jobId, chunk.index)
-    if (!blob) return
-    setUrl(URL.createObjectURL(blob))
+    setLoading(true)
+    try {
+      const blob = await getChunkBlob(jobId, chunk.index)
+      if (!blob) {
+        onNotice({ tone: 'warn', message: `Audio is missing for chunk ${chunk.index + 1}. Resume the job, then try again.` })
+        return
+      }
+      setUrl(URL.createObjectURL(blob))
+    } catch {
+      onNotice({ tone: 'error', message: `Could not load chunk ${chunk.index + 1}.` })
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -598,8 +653,8 @@ function QueueChunkPlayer({ jobId, chunk, format, regenerating, onRegenerate }: 
           {chunk.cues?.length ? ` - ${chunk.cues.length} cues` : ' - time resume'}
         </small>
       </div>
-      <button type="button" onClick={loadPlayer}>
-        <Play size={15} aria-hidden="true" />
+      <button type="button" onClick={loadPlayer} disabled={loading || regenerating}>
+        {loading ? <Loader2 size={15} aria-hidden="true" /> : <Play size={15} aria-hidden="true" />}
         {url ? 'Loaded' : 'Play'}
       </button>
       <button type="button" onClick={() => setEditing((value) => !value)} disabled={regenerating}>
@@ -1726,6 +1781,7 @@ function App() {
 
   async function saveWithPicker(result: AudioResult) {
     if (!result.url) return
+    let writable: FileSystemWritableFileStream | null = null
     try {
       const ext = result.filename.slice(result.filename.lastIndexOf('.'))
       const typeMap: Record<string, { description: string; accept: Record<string, string[]> }> = {
@@ -1738,15 +1794,21 @@ function App() {
         suggestedName: result.filename,
         types: [typeMap[ext] ?? typeMap['.wav']],
       })
-      const writable = await handle.createWritable()
+      writable = await handle.createWritable()
       const res = await fetch(result.url)
       const blob = await res.blob()
       await writable.write(blob)
       await writable.close()
+      writable = null
       showToast({ tone: 'ok', message: `Saved ${result.filename}` })
     } catch (err) {
+      if (writable) {
+        try {
+          await writable.close()
+        } catch { /* discard partial native-save handle */ }
+      }
       if (err instanceof Error && err.name !== 'AbortError') {
-        showToast({ tone: 'warn', message: 'Save cancelled.' })
+        showToast({ tone: 'warn', message: err.name === 'NotAllowedError' ? 'Save cancelled.' : 'Could not save this audio file.' })
       }
     }
   }
@@ -1756,9 +1818,12 @@ function App() {
     if (!url || importingUrl) return
     setImportingUrl(true)
     setStatus('Fetching article…')
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), ARTICLE_IMPORT_TIMEOUT_MS)
     try {
-      const target = /^https?:\/\//i.test(url) ? url : `https://${url}`
-      const res = await fetch(target, { mode: 'cors' })
+      const target = new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`)
+      if (target.protocol !== 'https:' && target.protocol !== 'http:') throw new Error('Unsupported protocol')
+      const res = await fetch(target.toString(), { mode: 'cors', signal: controller.signal })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const html = await res.text()
       const doc = new DOMParser().parseFromString(html, 'text/html')
@@ -1769,17 +1834,21 @@ function App() {
       const truncated = textContent.length > MAX_TEXT_CHARS
       setText(textContent.slice(0, MAX_TEXT_CHARS))
       setImportUrlValue('')
+      const title = shortUiLabel(article?.title ?? 'article')
       showToast(
         truncated
-          ? { tone: 'warn', message: `Imported "${article?.title ?? 'article'}" — trimmed to ${MAX_TEXT_CHARS} characters.` }
-          : { tone: 'ok', message: `Imported "${article?.title ?? 'article'}".` },
+          ? { tone: 'warn', message: `Imported "${title}" — trimmed to ${MAX_TEXT_CHARS} characters.` }
+          : { tone: 'ok', message: `Imported "${title}".` },
       )
-    } catch {
+    } catch (err) {
       showToast({
         tone: 'warn',
-        message: 'Could not read that page — most sites block cross-origin reads. Paste the article text instead.',
+        message: err instanceof DOMException && err.name === 'AbortError'
+          ? 'Article import timed out. Paste the text instead.'
+          : 'Could not read that page — most sites block cross-origin reads. Paste the article text instead.',
       })
     } finally {
+      window.clearTimeout(timeout)
       setImportingUrl(false)
       setStatus('Ready')
     }
@@ -2024,50 +2093,62 @@ function App() {
     const doneChunks = job.chunks.filter((c) => c.status === 'done')
     if (doneChunks.length === 0) return
 
-    const { zip } = await import('fflate')
-    const entries: Record<string, Uint8Array> = {}
-    const manifestChunks: Array<{
-      index: number
-      filename: string
-      text: string
-      chapterTitle?: string
-      chapterIndex?: number
-    }> = []
-    for (const chunk of doneChunks) {
-      const blob = await getChunkBlob(jobId, chunk.index)
-      if (blob) {
-        const ext = formatExtension(job.format)
-        const filename = `${String(chunk.index + 1).padStart(3, '0')}-${slugify(chunk.text)}${ext}`
-        entries[filename] = new Uint8Array(await blob.arrayBuffer())
-        manifestChunks.push({
-          index: chunk.index,
-          filename,
-          text: chunk.text,
-          chapterTitle: chunk.chapterTitle,
-          chapterIndex: chunk.chapterIndex,
-        })
+    setStatus('Building ZIP export...')
+    try {
+      const { zip } = await import('fflate')
+      const entries: Record<string, Uint8Array> = {}
+      const manifestChunks: Array<{
+        index: number
+        filename: string
+        text: string
+        chapterTitle?: string
+        chapterIndex?: number
+      }> = []
+      for (const chunk of doneChunks) {
+        const blob = await getChunkBlob(jobId, chunk.index)
+        if (blob) {
+          const ext = formatExtension(job.format)
+          const filename = `${String(chunk.index + 1).padStart(3, '0')}-${slugify(chunk.text)}${ext}`
+          entries[filename] = new Uint8Array(await blob.arrayBuffer())
+          manifestChunks.push({
+            index: chunk.index,
+            filename,
+            text: chunk.text,
+            chapterTitle: chunk.chapterTitle,
+            chapterIndex: chunk.chapterIndex,
+          })
+        }
       }
+      if (manifestChunks.length === 0) {
+        showToast({ tone: 'warn', message: 'No completed audio blobs were available for this ZIP export. Resume the job, then try again.' })
+        return
+      }
+      entries['chapters.json'] = new TextEncoder().encode(JSON.stringify({
+        app: 'BetterTTS',
+        title: job.title,
+        engine: job.engine,
+        voice: job.voice,
+        format: job.format,
+        bitrate: job.bitrate,
+        exportedAt: new Date().toISOString(),
+        chunks: manifestChunks,
+      }, null, 2))
+      const zipped = await new Promise<Uint8Array>((resolve, reject) => {
+        zip(entries, { level: 0 }, (err, data) => (err ? reject(err) : resolve(data)))
+      })
+      const zipBlob = new Blob([zipped as Uint8Array<ArrayBuffer>], { type: 'application/zip' })
+      const url = URL.createObjectURL(zipBlob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${slugify(job.title)}.zip`
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+      showToast({ tone: 'ok', message: `ZIP ready with ${manifestChunks.length} audio files.` })
+    } catch (err) {
+      showToast({ tone: 'error', message: err instanceof Error ? err.message : 'ZIP export failed.' })
+    } finally {
+      setStatus('Ready')
     }
-    entries['chapters.json'] = new TextEncoder().encode(JSON.stringify({
-      app: 'BetterTTS',
-      title: job.title,
-      engine: job.engine,
-      voice: job.voice,
-      format: job.format,
-      bitrate: job.bitrate,
-      exportedAt: new Date().toISOString(),
-      chunks: manifestChunks,
-    }, null, 2))
-    const zipped = await new Promise<Uint8Array>((resolve, reject) => {
-      zip(entries, { level: 0 }, (err, data) => (err ? reject(err) : resolve(data)))
-    })
-    const zipBlob = new Blob([zipped as Uint8Array<ArrayBuffer>], { type: 'application/zip' })
-    const url = URL.createObjectURL(zipBlob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${slugify(job.title)}.zip`
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
   async function downloadJobM4b(jobId: string) {
@@ -2132,7 +2213,33 @@ function App() {
     }
   }
 
+  async function removeQueueJob(jobId: string, title: string) {
+    try {
+      await deleteJob(jobId)
+      setQueueJobs((prev) => prev.filter((job) => job.id !== jobId))
+      showToast({ tone: 'ok', message: `Removed queue job "${shortUiLabel(title, 56)}".` })
+    } catch {
+      showToast({ tone: 'error', message: 'Could not remove this queue job.' })
+    }
+  }
+
+  async function clearSavedLibrary() {
+    try {
+      await clearLibrary()
+      setLibrary([])
+      showToast({ tone: 'ok', message: 'Cleared saved clip library.' })
+    } catch {
+      showToast({ tone: 'error', message: 'Could not clear the clip library.' })
+    }
+  }
+
   async function handleEpubImport(file: File) {
+    const sizeError = importSizeError(file)
+    if (sizeError) {
+      showToast(sizeError)
+      return
+    }
+    const fileLabel = shortUiLabel(file.name, 72)
     try {
       setStatus('Parsing EPUB…')
       const { parseEpub } = await import('./lib/epub.ts')
@@ -2162,16 +2269,22 @@ function App() {
       const skipped = chapters.filter((ch) => !ch.text.trim()).length
       showToast({
         tone: 'ok',
-        message: `Imported "${job.title}" — ${chapters.length} chapters, ${job.chunks.length} chunks.${skipped > 0 ? ` ${skipped} empty chapters skipped.` : ''}`,
+        message: `Imported "${shortUiLabel(job.title)}" — ${chapters.length} chapters, ${job.chunks.length} chunks.${skipped > 0 ? ` ${skipped} empty chapters skipped.` : ''}`,
       })
     } catch (err) {
-      showToast({ tone: 'error', message: err instanceof Error ? err.message : 'EPUB import failed.' })
+      showToast({ tone: 'error', message: err instanceof Error ? err.message : `${fileLabel} import failed.` })
     } finally {
       setStatus('Ready')
     }
   }
 
   async function handleDocumentImport(file: File) {
+    const sizeError = importSizeError(file)
+    if (sizeError) {
+      showToast(sizeError)
+      return
+    }
+    const fileLabel = shortUiLabel(file.name, 72)
     try {
       const extension = file.name.toLowerCase().endsWith('.pdf') ? 'PDF' : 'DOCX'
       setStatus(`Parsing ${extension}…`)
@@ -2179,7 +2292,7 @@ function App() {
       const imported = await importDocumentFile(file)
       const cleaned = cleanupText(imported.text, cleanup)
       if (!cleaned.trim()) {
-        showToast({ tone: 'warn', message: `No readable text found in ${file.name} after cleanup.` })
+        showToast({ tone: 'warn', message: `No readable text found in ${fileLabel} after cleanup.` })
         return
       }
 
@@ -2189,8 +2302,8 @@ function App() {
       showToast({
         tone: cleaned.length > MAX_TEXT_CHARS ? 'warn' : 'ok',
         message: cleaned.length > MAX_TEXT_CHARS
-          ? `${file.name} imported from ${imported.kind.toUpperCase()} and trimmed to ${MAX_TEXT_CHARS} characters; ${chunkCount} cleaned chunks ready.`
-          : `${file.name} imported from ${imported.kind.toUpperCase()}; ${chunkCount} cleaned chunks ready.`,
+          ? `${fileLabel} imported from ${imported.kind.toUpperCase()} and trimmed to ${MAX_TEXT_CHARS} characters; ${chunkCount} cleaned chunks ready.`
+          : `${fileLabel} imported from ${imported.kind.toUpperCase()}; ${chunkCount} cleaned chunks ready.`,
       })
     } catch (err) {
       showToast({ tone: 'error', message: err instanceof Error ? err.message : 'Document import failed.' })
@@ -2207,6 +2320,12 @@ function App() {
       return
     }
 
+    const sizeError = importSizeError(file)
+    if (sizeError) {
+      showToast(sizeError)
+      return
+    }
+    const fileLabel = shortUiLabel(file.name, 72)
     const lowerName = file.name.toLowerCase()
     if (lowerName.endsWith('.epub')) {
       handleEpubImport(file)
@@ -2230,11 +2349,11 @@ function App() {
       setText(raw.slice(0, MAX_TEXT_CHARS))
       showToast(
         truncated
-          ? { tone: 'warn', message: `${file.name} truncated from ${raw.length} to ${MAX_TEXT_CHARS} characters.` }
-          : { tone: 'ok', message: `${file.name} imported.` },
+          ? { tone: 'warn', message: `${fileLabel} truncated from ${raw.length} to ${MAX_TEXT_CHARS} characters.` }
+          : { tone: 'ok', message: `${fileLabel} imported.` },
       )
     }
-    reader.onerror = () => showToast({ tone: 'error', message: 'File import failed.' })
+    reader.onerror = () => showToast({ tone: 'error', message: `${fileLabel} import failed.` })
     reader.readAsText(file)
   }
 
@@ -2462,9 +2581,8 @@ function App() {
                           {!isActive ? (
                             <button
                               type="button"
-                              onClick={() => {
-                                deleteJob(job.id).then(() => setQueueJobs((prev) => prev.filter((j) => j.id !== job.id))).catch(() => {})
-                              }}
+                              onClick={() => removeQueueJob(job.id, job.title)}
+                              aria-label={`Remove queue job ${job.title}`}
                             >
                               <Trash2 size={16} aria-hidden="true" />
                             </button>
@@ -2480,6 +2598,7 @@ function App() {
                                 format={job.format}
                                 regenerating={regeneratingChunkKey === `${job.id}:${chunk.index}`}
                                 onRegenerate={regenerateQueueChunk}
+                                onNotice={showToast}
                               />
                             ))}
                           </div>
@@ -2509,16 +2628,14 @@ function App() {
                   <button
                     type="button"
                     className="heading-action"
-                    onClick={() => {
-                      clearLibrary().then(() => setLibrary([])).catch(() => {})
-                    }}
+                    onClick={clearSavedLibrary}
                   >
-                    Clear all
+                    Clear library
                   </button>
                 </div>
                 <div className="result-list">
                   {library.map((clip) => (
-                    <LibraryClipRow key={clip.id} clip={clip} onDeleted={(id) => setLibrary((prev) => prev.filter((c) => c.id !== id))} />
+                    <LibraryClipRow key={clip.id} clip={clip} onDeleted={(id) => setLibrary((prev) => prev.filter((c) => c.id !== id))} onNotice={showToast} />
                   ))}
                 </div>
               </section>

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Fixed
+- Added guardrails and visible recovery messages for slow article imports, oversized files, missing queue/library blobs, failed ZIP exports, and failed clip/library delete actions.
+
 ## v0.13.0 - 2026-07-09
 
 ### Added
