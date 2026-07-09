@@ -73,4 +73,50 @@ describe('parseEpub', () => {
     const file = new File([zipped], 'bad.epub')
     await expect(parseEpub(file)).rejects.toThrow('container.xml')
   })
+
+  it('resolves URI-encoded manifest hrefs to their zip entries', async () => {
+    // Calibre-style: the entry has a space, the manifest href percent-encodes it.
+    const container = `<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`
+    const opf = `<?xml version="1.0"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>T</dc:title></metadata>
+  <manifest><item id="c1" href="My%20Chapter.xhtml" media-type="application/xhtml+xml"/></manifest>
+  <spine><itemref idref="c1"/></spine>
+</package>`
+    const zipped = zipSync({
+      'META-INF/container.xml': new TextEncoder().encode(container),
+      'content.opf': new TextEncoder().encode(opf),
+      'My Chapter.xhtml': new TextEncoder().encode(
+        '<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body><p>Encoded href text.</p></body></html>',
+      ),
+    })
+    const chapters = await parseEpub(new File([zipped], 'test.epub'))
+    expect(chapters.length).toBe(1)
+    expect(chapters[0].text).toContain('Encoded href text.')
+  })
+
+  it('falls back to HTML parsing for non-well-formed chapters', async () => {
+    const container = `<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`
+    const opf = `<?xml version="1.0"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>T</dc:title></metadata>
+  <manifest><item id="c1" href="broken.xhtml" media-type="application/xhtml+xml"/></manifest>
+  <spine><itemref idref="c1"/></spine>
+</package>`
+    const zipped = zipSync({
+      'META-INF/container.xml': new TextEncoder().encode(container),
+      'content.opf': new TextEncoder().encode(opf),
+      // Unclosed <p> and a raw ampersand: invalid XML, valid-enough HTML.
+      'broken.xhtml': new TextEncoder().encode('<html><body><p>Broken & unclosed chapter text</body></html>'),
+    })
+    const chapters = await parseEpub(new File([zipped], 'test.epub'))
+    expect(chapters.length).toBe(1)
+    expect(chapters[0].text).toContain('Broken & unclosed chapter text')
+  })
 })

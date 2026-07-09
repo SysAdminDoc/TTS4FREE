@@ -5,13 +5,31 @@ export type EpubChapter = {
   text: string
 }
 
+// EPUBs only contain text documents we read individually; cap each entry's
+// decompressed size so a crafted archive (deflate reaches ~1000:1) cannot
+// balloon a size-checked upload into gigabytes of memory.
+const MAX_ENTRY_BYTES = 64 * 1024 * 1024
+
 export async function parseEpub(file: File): Promise<EpubChapter[]> {
   const buffer = new Uint8Array(await file.arrayBuffer())
-  const files = unzipSync(buffer)
+  const files = unzipSync(buffer, {
+    filter: (entry) => entry.originalSize <= MAX_ENTRY_BYTES,
+  })
 
   const decoder = new TextDecoder('utf-8')
   const read = (path: string): string | null => {
-    const key = Object.keys(files).find((k) => k === path || k.replace(/^\//, '') === path)
+    // Manifest/NCX/nav hrefs are URIs — an entry named "My Chapter.xhtml" is
+    // referenced as "My%20Chapter.xhtml", so match the decoded form too.
+    let decoded = path
+    try {
+      decoded = decodeURIComponent(path)
+    } catch {
+      /* malformed escape — fall back to the raw href */
+    }
+    const key = Object.keys(files).find((k) => {
+      const normalized = k.replace(/^\//, '')
+      return k === path || normalized === path || k === decoded || normalized === decoded
+    })
     return key ? decoder.decode(files[key]) : null
   }
 
@@ -93,7 +111,12 @@ export async function parseEpub(file: File): Promise<EpubChapter[]> {
     const xhtml = read(href)
     if (!xhtml) continue
 
-    const doc = new DOMParser().parseFromString(xhtml, 'application/xhtml+xml')
+    let doc = new DOMParser().parseFromString(xhtml, 'application/xhtml+xml')
+    // Converted EPUBs routinely contain non-well-formed XHTML; rather than
+    // silently dropping the chapter on a parsererror, re-parse as HTML.
+    if (doc.querySelector('parsererror')) {
+      doc = new DOMParser().parseFromString(xhtml, 'text/html')
+    }
     const body = doc.querySelector('body')
     if (!body) continue
 

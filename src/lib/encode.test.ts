@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_MP3_KBPS_24K, encodeAudio, formatExtension, formatFromFilename, formatMime, shiftPitch } from './encode.ts'
+import { MAX_MP3_KBPS_24K, buildWebmOpus, encodeAudio, formatExtension, formatFromFilename, formatMime, shiftPitch } from './encode.ts'
 
 // mixBgm is not covered here: it requires OfflineAudioContext, which has no
 // Node implementation. Its zero-length and stereo guards are exercised in-app.
@@ -78,6 +78,59 @@ describe('encodeAudio mp3', () => {
     const first = bytes.slice(0, quarter).join(',')
     const last = bytes.slice(bytes.length - quarter).join(',')
     expect(first).not.toBe(last)
+  })
+})
+
+function countSubsequence(haystack: Uint8Array, needle: number[]): number {
+  let count = 0
+  outer: for (let i = 0; i <= haystack.length - needle.length; i++) {
+    for (let j = 0; j < needle.length; j++) {
+      if (haystack[i + j] !== needle[j]) continue outer
+    }
+    count++
+  }
+  return count
+}
+
+describe('buildWebmOpus', () => {
+  const CLUSTER_ID = [0x1f, 0x43, 0xb6, 0x75]
+
+  // Frames of constant zero bytes can never alias an EBML element ID.
+  function frames(count: number): Uint8Array[] {
+    return Array.from({ length: count }, () => new Uint8Array(2))
+  }
+
+  it('rolls clusters so relative block timestamps never exceed signed int16', async () => {
+    // 2000 frames × 20 ms = 40 s — a single cluster would overflow at 32.767 s.
+    const blob = buildWebmOpus(frames(2000), 48000, 2000 * 960)
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    expect(countSubsequence(bytes, CLUSTER_ID)).toBe(Math.ceil(2000 / 250))
+  })
+
+  it('keeps a short export in a single cluster', async () => {
+    const blob = buildWebmOpus(frames(100), 48000, 100 * 960)
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    expect(countSubsequence(bytes, CLUSTER_ID)).toBe(1)
+  })
+
+  it('adopts the encoder OpusHead and declares its pre-skip as CodecDelay', async () => {
+    const head = new Uint8Array(19)
+    head.set([0x4f, 0x70, 0x75, 0x73, 0x48, 0x65, 0x61, 0x64])
+    head[8] = 1
+    head[9] = 1
+    new DataView(head.buffer).setUint16(10, 312, true) // pre-skip samples
+    const blob = buildWebmOpus(frames(10), 48000, 10 * 960, head)
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    // CodecDelay (0x56aa) = round(312 / 48000 * 1e9) = 6,500,000 ns = 0x632ea0.
+    expect(countSubsequence(bytes, [0x56, 0xaa, 0x83, 0x63, 0x2e, 0xa0])).toBe(1)
+  })
+
+  it('declares final-frame zero padding as DiscardPadding', async () => {
+    // 480 padded samples = 10,000,000 ns = 0x989680; the sint encoding
+    // prepends 0x00 because the leading byte has its high bit set.
+    const blob = buildWebmOpus(frames(10), 48000, 10 * 960 - 480, null, 480)
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    expect(countSubsequence(bytes, [0x75, 0xa2, 0x84, 0x00, 0x98, 0x96, 0x80])).toBe(1)
   })
 })
 

@@ -34,6 +34,10 @@ function hardSplit(sentence: string): string[] {
     if (cut < MAX_CHUNK_CHARS * 0.4) cut = window.lastIndexOf(' ')
     if (cut <= 0) {
       cut = MAX_CHUNK_CHARS
+      // Never split a surrogate pair — a lone surrogate reaches the phonemizer
+      // as U+FFFD and garbles the audio at the seam.
+      const beforeCut = rest.charCodeAt(cut - 1)
+      if (beforeCut >= 0xd800 && beforeCut <= 0xdbff) cut -= 1
     } else {
       cut += 1
     }
@@ -47,7 +51,9 @@ function hardSplit(sentence: string): string[] {
 
 export function splitIntoSentences(text: string): string[] {
   if (!text.trim()) return []
-  const sentences = text.split(/(?<=[.!?])\s+/).filter(Boolean).flatMap(hardSplit)
+  // Sentence terminators beyond [.!?]: Devanagari danda (Hindi is a supported
+  // Kokoro locale) and fullwidth CJK stops, which often have no trailing space.
+  const sentences = text.split(/(?<=[.!?।॥。！？])\s+|(?<=[。！？])/).filter(Boolean).flatMap(hardSplit)
   if (sentences.length === 0) return [text.trim()]
 
   const chunks: string[] = []
@@ -202,9 +208,15 @@ export function normalizeAudiobookNumbers(input: string): string {
         ? `${Number(whole)} ${major} and ${Number(normalizedCents)} ${minor}`
         : `${Number(whole)} ${major}`
     })
-    .replace(/\b(\d+(?:\.\d+)?)\s*(°?\s?(?:kg|mg|g|km|cm|mm|ml|lbs|lb|ft|in|m|%|°C|°F))(?=\s|[.,;:!?)]|$)/gi, (_, value: string, unit: string) => {
+    .replace(/\b(\d+(?:\.\d+)?)\s*(°?\s?(?:kg|mg|km|cm|mm|ml|lbs|lb|ft|%|°C|°F))(?=\s|[.,;:!?)]|$)/gi, (_, value: string, unit: string) => {
       const key = unit.toLowerCase().replace(/\s+/g, '').replace(/^°/, '')
       const label = UNIT_NAMES[key] ?? unit
+      return `${speakNumericToken(value)} ${label}`
+    })
+    // "in", "m", and "g" collide with common English ("1 in 10", "3 in the
+    // morning"), so treat them as units only before punctuation or end of line.
+    .replace(/\b(\d+(?:\.\d+)?)\s*(in|m|g)(?=[.,;:!?)]|$)/g, (_, value: string, unit: string) => {
+      const label = UNIT_NAMES[unit] ?? unit
       return `${speakNumericToken(value)} ${label}`
     })
     .replace(/\b(\d+)\.(\d+)\b/g, (_, whole: string, fraction: string) => `${whole} point ${fraction.split('').join(' ')}`)

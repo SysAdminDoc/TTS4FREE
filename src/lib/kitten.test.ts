@@ -47,4 +47,22 @@ describe('kitten metadata', () => {
     expect(parsed.sampleRate).toBe(KITTEN_SAMPLE_RATE)
     expect(Array.from(parsed.samples).map((sample) => Number(sample.toFixed(3)))).toEqual([-1, -0.5, 0, 0.5, 1])
   })
+
+  it('rejects blobs shorter than a RIFF header with its own error', async () => {
+    await expect(wavBlobToFloat32(new Blob([new Uint8Array([1, 2, 3, 4])]))).rejects.toThrow('invalid WAV payload')
+  })
+
+  it('rejects a fmt chunk truncated below its declared 16 bytes', async () => {
+    const wav = new Uint8Array(encodeWav(new Float32Array([0, 0.5]), KITTEN_SAMPLE_RATE))
+    // Cut mid-fmt: RIFF(12) + fmt header(8) + only 4 of the 16 fmt bytes.
+    await expect(wavBlobToFloat32(new Blob([wav.slice(0, 24)]))).rejects.toThrow('invalid WAV payload')
+  })
+
+  it('clamps a data chunk that declares more bytes than the buffer holds', async () => {
+    const wav = new Uint8Array(encodeWav(new Float32Array([-1, -0.5, 0, 0.5, 1]), KITTEN_SAMPLE_RATE))
+    // Drop the last 4 bytes (2 samples) without touching the declared size.
+    const truncated = wav.slice(0, wav.length - 4)
+    const parsed = await wavBlobToFloat32(new Blob([truncated]))
+    expect(parsed.samples.length).toBe(3)
+  })
 })

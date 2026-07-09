@@ -279,6 +279,45 @@ describe('normalizeAudiobookNumbers', () => {
   it('keeps integer-looking tokens unchanged when no unit or currency is present', () => {
     expect(normalizeAudiobookNumbers('Chapter 12 starts now')).toBe('Chapter 12 starts now')
   })
+
+  it('never treats the preposition "in" after a number as inches', () => {
+    expect(normalizeAudiobookNumbers('About 1 in 10 people agree.')).toBe('About 1 in 10 people agree.')
+    expect(normalizeAudiobookNumbers('She arrived at 3 in the morning.')).toBe('She arrived at 3 in the morning.')
+    expect(normalizeAudiobookNumbers('He was born in 1922 in Ohio.')).toBe('He was born in 1922 in Ohio.')
+  })
+
+  it('still expands ambiguous units before punctuation or end of line', () => {
+    expect(normalizeAudiobookNumbers('The board is 5 in.')).toBe('The board is 5 inches.')
+    expect(normalizeAudiobookNumbers('He ran 400 m, then rested.')).toBe('He ran 400 meters, then rested.')
+    expect(normalizeAudiobookNumbers('Add 30 g')).toBe('Add 30 grams')
+  })
+})
+
+describe('splitIntoSentences unicode boundaries', () => {
+  it('splits Hindi sentences at the danda', () => {
+    const first = 'यह पहला वाक्य है और इसे लंबा बनाया गया है ताकि यह अपने ही खंड में रहे। '.repeat(8)
+    const chunks = splitIntoSentences(first)
+    expect(chunks.length).toBeGreaterThan(1)
+    for (const chunk of chunks) {
+      expect(chunk.endsWith('।')).toBe(true)
+    }
+  })
+
+  it('splits fullwidth CJK stops that have no trailing space', () => {
+    const text = `${'こ'.repeat(200)}。${'ん'.repeat(200)}。`
+    const chunks = splitIntoSentences(text)
+    expect(chunks.length).toBe(2)
+    expect(chunks[0].endsWith('。')).toBe(true)
+  })
+
+  it('never splits a surrogate pair at the hard-cut boundary', () => {
+    const text = `a${'🎉'.repeat(400)}`
+    const chunks = splitIntoSentences(text)
+    for (const chunk of chunks) {
+      expect(chunk).not.toMatch(/[\uD800-\uDBFF]$/)
+      expect(chunk).not.toMatch(/^[\uDC00-\uDFFF]/)
+    }
+  })
 })
 
 describe('formatBytes', () => {

@@ -70,8 +70,15 @@ export async function extractDocxText(file: File): Promise<string> {
   return extractDocxTextFromArrayBuffer(await file.arrayBuffer())
 }
 
+// Only the main document part is ever read — skip inflating embedded media
+// entirely, and cap the part's decompressed size so a crafted archive cannot
+// balloon a size-checked upload into gigabytes of memory.
+const MAX_DOCUMENT_XML_BYTES = 256 * 1024 * 1024
+
 export function extractDocxTextFromArrayBuffer(buffer: ArrayBuffer): string {
-  const files = unzipSync(new Uint8Array(buffer))
+  const files = unzipSync(new Uint8Array(buffer), {
+    filter: (entry) => entry.name.replace(/^\/+/, '') === 'word/document.xml' && entry.originalSize <= MAX_DOCUMENT_XML_BYTES,
+  })
   const documentKey = Object.keys(files).find((key) => key.replace(/^\/+/, '') === 'word/document.xml')
   if (!documentKey) throw new Error('DOCX import failed. The file is missing word/document.xml.')
 
