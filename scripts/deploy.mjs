@@ -15,6 +15,7 @@ const distDir = join(repoRoot, 'dist')
 
 run('npm run build')
 run('node scripts/sync-kokoro-assets.mjs')
+run('node scripts/sync-piper-assets.mjs')
 
 if (!existsSync(join(distDir, 'index.html'))) {
   console.error('dist/index.html missing after build — aborting deploy')

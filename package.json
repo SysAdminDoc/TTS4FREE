@@ -1,7 +1,7 @@
 {
   "name": "bettertts",
   "private": true,
-  "version": "0.12.0",
+  "version": "0.13.0",
   "type": "module",
   "scripts": {
     "clean": "node -e \"import('node:fs').then(fs => fs.rmSync('dist', { recursive: true, force: true }))\"",
@@ -14,7 +14,8 @@
     "license:runtime": "node scripts/check-runtime-licenses.mjs",
     "preview": "vite preview",
     "deploy": "node scripts/deploy.mjs",
-    "sync:kokoro": "node scripts/sync-kokoro-assets.mjs"
+    "sync:kokoro": "node scripts/sync-kokoro-assets.mjs",
+    "sync:piper": "node scripts/sync-piper-assets.mjs"
   },
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",
@@ -25,8 +26,10 @@
     "kitten-tts-webgpu": "^0.1.1",
     "kokoro-js": "^1.2.1",
     "lucide-react": "^1.23.0",
+    "onnxruntime-web": "^1.27.0",
     "pdfjs-dist": "^6.1.200",
     "phonemizer": "^1.2.1",
+    "piper-plus": "^0.6.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "signalsmith-stretch": "^1.3.2"

@@ -37,7 +37,7 @@ describe('collectDiagnostics', () => {
     recordDiagnosticEvent('warn', 'AAC unavailable')
 
     const bundle = await collectDiagnostics({
-      appVersion: '0.12.0',
+      appVersion: '0.13.0',
       selection: {
         engine: 'kokoro',
         engineStatus: 'English US - WebAssembly q8',
@@ -84,10 +84,21 @@ describe('collectDiagnostics', () => {
         readyToSwitch: false,
         criteria: [],
       }),
+      piperPlus: () => ({
+        packageVersion: '0.6.0',
+        model: 'ayousanz/piper-plus-tsukuyomi-chan',
+        modelLabel: 'Tsukuyomi-chan',
+        supported: true,
+        wasm: true,
+        indexedDb: true,
+        webGpu: false,
+        defaultFirstLoad: false,
+        notes: ['lazy'],
+      }),
     })
 
     expect(bundle.generatedAt).toBe('2026-07-09T00:00:00.000Z')
-    expect(bundle.app.version).toBe('0.12.0')
+    expect(bundle.app.version).toBe('0.13.0')
     expect(bundle.browser).toMatchObject({ userAgent: 'UnitTest', hardwareConcurrency: 8, deviceMemoryGb: 16 })
     expect(bundle.capabilities.webGpu.status).toBe('no adapter available')
     expect(bundle.capabilities.webCodecs.opus).toBe(true)
@@ -95,6 +106,8 @@ describe('collectDiagnostics', () => {
     expect(bundle.capabilities.crossOriginStorage.defaultBehavior).toBe('disabled')
     expect(bundle.capabilities.transformers.currentVersion).toBe('4.2.0')
     expect(bundle.capabilities.transformers.readyToSwitch).toBe(false)
+    expect(bundle.capabilities.piperPlus.model).toBe('ayousanz/piper-plus-tsukuyomi-chan')
+    expect(bundle.capabilities.piperPlus.defaultFirstLoad).toBe(false)
     expect(bundle.storage.browser.usagePct).toBe(10)
     expect(bundle.selection.modelRoutes.kokoroRemote).toContain('Kokoro-82M')
     expect(bundle.recentEvents[0].message).toBe('AAC unavailable')

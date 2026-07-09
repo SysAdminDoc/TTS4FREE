@@ -45,9 +45,29 @@ function cspInjector(): Plugin {
   }
 }
 
+function piperPlusBuildPatch(): Plugin {
+  return {
+    name: 'piper-plus-build-patch',
+    apply: 'build',
+    transform(code, id) {
+      const normalized = id.replace(/\\/g, '/')
+      if (normalized.endsWith('/piper-plus/src/phonemizer/rust-wasm-adapter.js')) {
+        return code.replace("new URL('../../assets/', import.meta.url).href", "'/BetterTTS/piper-plus-dicts/'")
+      }
+      if (normalized.endsWith('/piper-plus/src/index.js')) {
+        return code.replace(
+          'wasmLoader: options.wasmLoader,',
+          'wasmLoader: options.wasmLoader,\n              zhDictBaseUrl: options.zhDictBaseUrl,',
+        )
+      }
+      return null
+    },
+  }
+}
+
 export default defineConfig({
   base: '/BetterTTS/',
-  plugins: [react(), swBuildId(), cspInjector()],
+  plugins: [react(), swBuildId(), cspInjector(), piperPlusBuildPatch()],
   worker: {
     format: 'es',
   },

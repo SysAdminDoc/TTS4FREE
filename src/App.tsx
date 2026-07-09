@@ -31,6 +31,11 @@ import {
   recordDiagnosticEvent,
   type DiagnosticsSelection,
 } from './lib/diagnostics.ts'
+import {
+  EXPERIMENTAL_PIPER_STORAGE_KEY,
+  engineQueueable,
+  type EngineId,
+} from './lib/engine-registry.ts'
 import { type AudioFormat, encodeAudio, formatExtension, mixBgm, opusSupported, shiftPitch } from './lib/encode.ts'
 import { KOKORO_SAMPLE_RATE, type ProgressInfo, type RawAudioLike, loadKokoro, probeWebGpu, resetKokoroSession } from './lib/kokoro.ts'
 import { KOKORO_HF_RESOLVE_PREFIX, KOKORO_LOCAL_MODEL_PREFIX, KOKORO_MODEL_ID } from './lib/kokoro-assets.ts'
@@ -53,6 +58,18 @@ import {
   detectCrossOriginStorage,
   transformersUpgradeReadiness,
 } from './lib/runtime-readiness.ts'
+import {
+  PIPER_PLUS_LANGUAGES,
+  PIPER_PLUS_MODEL_ID,
+  PIPER_PLUS_MODEL_LABEL,
+  PIPER_PLUS_PACKAGE_VERSION,
+  PIPER_PLUS_SAMPLE_RATE,
+  type PiperPlusLanguage,
+  loadPiperPlus,
+  piperPlusRuntimeSupport,
+  resetPiperPlusSession,
+  synthesizePiperPlus,
+} from './lib/piper-plus.ts'
 import { type QueueEngine, type QueueJob, deleteJob, getChunkBlob, jobProgress, listJobs, replaceQueueChunk, saveChunkBlob, saveJob } from './lib/queue.ts'
 import {
   clampResumeTime,
@@ -83,11 +100,11 @@ import { type Cue, toSRT, toVTT } from './lib/subtitles.ts'
 import { concatFloat32Arrays, encodeWav } from './lib/wav.ts'
 import { speakBrowser } from './lib/webspeech.ts'
 
-const APP_VERSION = '0.12.0'
+const APP_VERSION = '0.13.0'
 const MAX_TEXT_CHARS = 5000
 const EMPTY_VTT_URL = 'data:text/vtt;charset=utf-8,WEBVTT%0A%0A'
 
-type Engine = 'kokoro' | 'supertonic' | 'kitten' | 'browser'
+type Engine = EngineId
 type Theme = 'dark' | 'light'
 
 type QueueSourceChunk = {
@@ -127,6 +144,7 @@ const MODEL_ROWS = [
   ['Kokoro timestamped', 'Kokoro local', '82M', 'Word-level timings', 'Opt-in'],
   ['Supertonic', 'Transformers.js', '66M', 'English speed engine', 'Ready'],
   ['KittenTTS', 'WebGPU shaders', '15M / 40M / 80M', 'English lightweight engine', 'Ready'],
+  ['Piper-plus', 'WASM + ONNX Runtime', 'Tsukuyomi-chan', 'JA / EN / ZH / KO / ES / FR / PT / SV', 'Experimental'],
   ['Kokoro multilingual', 'ephone + HF voice bins', '82M', 'ES / FR / HI / IT / PT', 'Ready'],
   ['Browser voices', 'Web Speech', 'Native', 'Device voices', 'Fallback'],
 ]
@@ -136,6 +154,7 @@ const RUNTIME_LICENSE_ROWS = [
   ['kokoro-js, Kokoro ONNX, Transformers.js, phonemizer', 'Apache-2.0', 'Kokoro, timestamps, English phonemization'],
   ['ephone / eSpeak NG WASM', 'GPL-3.0-or-later', 'Loaded only for multilingual Kokoro voices: ES / FR / HI / IT / PT-BR'],
   ['KittenTTS browser wrapper', 'MIT', 'Kitten model weights are Apache-2.0'],
+  ['piper-plus, @piper-plus/g2p, onnxruntime-web', 'MIT', 'Experimental Piper-plus engine; lazy package/WASM/model path'],
   ['Supertonic ONNX model', 'OpenRAIL', 'HF-hosted English speed engine'],
   ['lamejs MP3 encoder', 'LGPL-3.0', 'MP3 export path'],
   ['pdfjs-dist', 'Apache-2.0', 'Local PDF text extraction'],
@@ -151,6 +170,16 @@ function getInitialTheme(): Theme {
   } catch { /* storage blocked */ }
   if (window.matchMedia?.('(prefers-color-scheme: light)').matches) return 'light'
   return 'dark'
+}
+
+function getInitialPiperFlag(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    const params = new URLSearchParams(window.location.search)
+    return params.get('piper') === '1' || window.localStorage.getItem(EXPERIMENTAL_PIPER_STORAGE_KEY) === '1'
+  } catch {
+    return false
+  }
 }
 
 function timestamp() {
@@ -664,6 +693,8 @@ function App() {
   const [supertonicSteps, setSupertonicSteps] = useState(SUPERTONIC_DEFAULT_STEPS)
   const [kittenVoiceId, setKittenVoiceId] = useState<KittenVoiceId>('Bella')
   const [kittenModelSize, setKittenModelSize] = useState<KittenModelSize>(KITTEN_DEFAULT_MODEL)
+  const [piperLanguage, setPiperLanguage] = useState<PiperPlusLanguage>('ja')
+  const [experimentalPiperEnabled, setExperimentalPiperEnabled] = useState(getInitialPiperFlag)
   const [speed, setSpeed] = useState(1)
   const [separateLines, setSeparateLines] = useState(false)
   const [streamPlay, setStreamPlay] = useState(true)
@@ -748,6 +779,7 @@ function App() {
   const selectedSupertonicVoice = SUPERTONIC_VOICES.find((voice) => voice.id === supertonicVoiceId) ?? SUPERTONIC_VOICES[0]
   const selectedKittenVoice = KITTEN_VOICES.find((voice) => voice.id === kittenVoiceId) ?? KITTEN_VOICES[0]
   const selectedKittenModel = KITTEN_MODELS.find((model) => model.id === kittenModelSize) ?? KITTEN_MODELS[0]
+  const selectedPiperLanguage = PIPER_PLUS_LANGUAGES.find((language) => language.id === piperLanguage) ?? PIPER_PLUS_LANGUAGES[0]
   const selectedKokoroLanguage = kokoroLanguageForLocale(locale)
   const englishKokoro = isEnglishKokoroLocale(locale)
   const blendableVoices = useMemo(() => VOICES.filter((voice) => isEnglishKokoroLocale(voice.locale)), [])
@@ -765,8 +797,11 @@ function App() {
   const m4bExportReady = m4bCapability?.supported === true
   const crossOriginStorage = useMemo(() => detectCrossOriginStorage(), [])
   const transformersReadiness = useMemo(() => transformersUpgradeReadiness(), [])
+  const piperPlusSupport = useMemo(() => piperPlusRuntimeSupport(), [])
   const queueDisabledReason = engine === 'browser'
     ? 'Queue export is unavailable for Browser voices.'
+    : engine === 'piper'
+      ? 'Experimental Piper-plus jobs can generate clips but are not queueable yet.'
     : !usableText.trim()
       ? 'Enter text before queueing.'
       : null
@@ -777,6 +812,8 @@ function App() {
         ? 'English speed engine - 44.1 kHz fp32'
         : engine === 'kitten'
           ? `${selectedKittenModel.label} - ${selectedKittenModel.params} - ${kittenRuntimeReady ? 'WebGPU available' : 'WebGPU unavailable'}`
+          : engine === 'piper'
+            ? `${PIPER_PLUS_MODEL_LABEL} - ${selectedPiperLanguage.label} - experimental lazy engine`
           : 'Device-native speech playback'
 
   useEffect(() => {
@@ -791,6 +828,13 @@ function App() {
   useEffect(() => {
     try { window.localStorage.setItem('bettertts-cleanup', JSON.stringify(cleanup)) } catch {}
   }, [cleanup])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(EXPERIMENTAL_PIPER_STORAGE_KEY, experimentalPiperEnabled ? '1' : '0')
+    } catch {}
+    if (!experimentalPiperEnabled && engine === 'piper') setEngine('kokoro')
+  }, [experimentalPiperEnabled, engine])
 
   useEffect(() => {
     if (forceWasm) {
@@ -908,11 +952,14 @@ function App() {
       kokoroLocalBase: new URL(`${normalizedBase}${KOKORO_LOCAL_MODEL_PREFIX}`, baseUrl).toString(),
       supertonicModel: SUPERTONIC_MODEL_ID,
       kittenPackage: 'kitten-tts-webgpu',
+      piperPlusPackage: `piper-plus ${PIPER_PLUS_PACKAGE_VERSION}`,
+      piperPlusModel: PIPER_PLUS_MODEL_ID,
     }
 
     if (engine === 'supertonic') modelRoutes.supertonicVoice = supertonicVoiceUrl(selectedSupertonicVoice.id)
     if (engine === 'kokoro') modelRoutes.kokoroVoice = selectedVoice.id
     if (engine === 'kitten') modelRoutes.kittenModel = selectedKittenModel.id
+    if (engine === 'piper') modelRoutes.piperPlusLanguage = piperLanguage
 
     return {
       engine,
@@ -924,8 +971,10 @@ function App() {
           ? selectedSupertonicVoice.id
           : engine === 'kitten'
             ? selectedKittenVoice.id
-            : browserVoiceUri || 'browser-default',
-      language: engine === 'kokoro' ? locale : undefined,
+            : engine === 'piper'
+              ? PIPER_PLUS_MODEL_LABEL
+              : browserVoiceUri || 'browser-default',
+      language: engine === 'kokoro' ? locale : engine === 'piper' ? piperLanguage : undefined,
       format: audioFormat,
       bitrate: mp3Bitrate,
       speed,
@@ -935,7 +984,9 @@ function App() {
           ? SUPERTONIC_MODEL_ID
           : engine === 'kitten'
             ? `kitten-tts-webgpu ${selectedKittenModel.id}`
-            : 'Web Speech API',
+            : engine === 'piper'
+              ? `${PIPER_PLUS_MODEL_ID} via piper-plus ${PIPER_PLUS_PACKAGE_VERSION}`
+              : 'Web Speech API',
       modelRoutes,
     }
   }
@@ -1176,6 +1227,14 @@ function App() {
           }),
       }
     }
+    if (engine === 'piper') {
+      if (!piperPlusSupport.supported) throw new Error('Piper-plus requires WebAssembly and IndexedDB support in this browser.')
+      const tts = await loadPiperPlus(onProgress)
+      setRuntimeLabel(`Piper-plus ${PIPER_PLUS_PACKAGE_VERSION}`)
+      return {
+        synthesize: (text, _voice, spd) => synthesizePiperPlus(tts, text, piperLanguage, spd),
+      }
+    }
     return ensureKokoroEngine(onProgress)
   }
 
@@ -1208,12 +1267,18 @@ function App() {
   }
 
   async function runSynthesis(jobs: SynthJob[], opts: { zipPrefix: string; successMessage?: string }) {
-    const loadingLabel = engine === 'supertonic' ? 'Loading Supertonic model' : engine === 'kitten' ? 'Loading KittenTTS model' : 'Loading Kokoro model'
+    const loadingLabel = engine === 'supertonic'
+      ? 'Loading Supertonic model'
+      : engine === 'kitten'
+        ? 'Loading KittenTTS model'
+        : engine === 'piper'
+          ? 'Loading Piper-plus model'
+          : 'Loading Kokoro model'
     setStatus(loadingLabel)
     setProgress(3)
 
     const fileTotals = new Map<string, { loaded: number; total: number }>()
-    const onProgress = (info: { status?: string; file?: string; loaded?: number; total?: number }) => {
+    const onProgress = (info: { status?: string; name?: string; file?: string; progress?: number; loaded?: number; total?: number }) => {
       if (info.status === 'progress_total' && typeof info.loaded === 'number' && typeof info.total === 'number') {
         const pct = info.total > 0 ? info.loaded / info.total : 0
         setStatus(`Downloading ${formatBytes(info.loaded)} / ${formatBytes(info.total)}`)
@@ -1232,6 +1297,9 @@ function App() {
       } else if (info.status === 'ready') {
         setStatus('Model ready')
         setProgress(35)
+      } else if (info.name || info.file || info.status) {
+        setStatus(info.name ?? info.file ?? info.status ?? loadingLabel)
+        if (typeof info.progress === 'number') setProgress(Math.min(35, Math.max(3, Math.round(info.progress * 35))))
       }
     }
 
@@ -1247,7 +1315,13 @@ function App() {
     setStatus('Generating local audio')
     const genStart = performance.now()
     let totalSamples = 0
-    const outputSampleRate = engine === 'supertonic' ? SUPERTONIC_SAMPLE_RATE : engine === 'kitten' ? KITTEN_SAMPLE_RATE : KOKORO_SAMPLE_RATE
+    const outputSampleRate = engine === 'supertonic'
+      ? SUPERTONIC_SAMPLE_RATE
+      : engine === 'kitten'
+        ? KITTEN_SAMPLE_RATE
+        : engine === 'piper'
+          ? PIPER_PLUS_SAMPLE_RATE
+          : KOKORO_SAMPLE_RATE
     let totalChars = 0
     const generated: AudioResult[] = []
     const zipFiles: Record<string, Blob> = {}
@@ -1470,6 +1544,19 @@ function App() {
     })
   }
 
+  async function generatePiperPlus(chunks: string[]) {
+    const jobs: SynthJob[] = chunks.map((chunk, index) => ({
+      text: chunk,
+      voice: piperLanguage,
+      label: `${PIPER_PLUS_MODEL_LABEL} ${selectedPiperLanguage.label}: ${chunk.slice(0, 48)}`,
+      filenamePrefix: chunks.length === 1 ? slugify(chunk) : `${String(index + 1).padStart(3, '0')}-${slugify(chunk)}`,
+    }))
+    await runSynthesis(jobs, {
+      zipPrefix: 'bettertts-piper',
+      successMessage: 'Experimental Piper-plus audio generated locally.',
+    })
+  }
+
   async function generateBrowser(chunks: string[]) {
     setStatus('Starting browser speech')
     setProgress(5)
@@ -1554,6 +1641,8 @@ function App() {
         await generateSupertonic(chunks)
       } else if (engine === 'kitten') {
         await generateKitten(chunks)
+      } else if (engine === 'piper') {
+        await generatePiperPlus(chunks)
       } else {
         await generateBrowser(chunks)
       }
@@ -1715,7 +1804,7 @@ function App() {
   }, [])
 
   function createQueueJob(title: string, chunks: QueueSourceChunk[]): QueueJob | null {
-    if (engine === 'browser') return null
+    if (!engineQueueable(engine)) return null
     const queueEngine = engine as QueueEngine
     return {
       schemaVersion: 2,
@@ -1753,7 +1842,7 @@ function App() {
       chunks.map((text) => ({ text })),
     )
     if (!job) {
-      showToast({ tone: 'warn', message: 'Browser voices can play immediately but cannot be queued for file export.' })
+      showToast({ tone: 'warn', message: queueDisabledReason ?? 'This engine cannot be queued for file export.' })
       return
     }
     await saveJob(job)
@@ -2065,7 +2154,7 @@ function App() {
         })),
       )
       if (!job) {
-        showToast({ tone: 'warn', message: 'Browser voices can play EPUB text but cannot be queued for file export.' })
+        showToast({ tone: 'warn', message: queueDisabledReason ?? 'This engine cannot queue EPUB text for file export.' })
         return
       }
       await saveJob(job)
@@ -2488,6 +2577,17 @@ function App() {
                   <strong>KittenTTS</strong>
                   <small>{selectedKittenModel.label} {selectedKittenModel.params}. English WebGPU engine, {selectedKittenModel.weightSize} on first use.</small>
                 </button>
+                {experimentalPiperEnabled ? (
+                  <button
+                    type="button"
+                    className={engine === 'piper' ? 'engine-card selected' : 'engine-card'}
+                    onClick={() => setEngine('piper')}
+                  >
+                    <span>{engine === 'piper' ? <Check size={17} aria-hidden="true" /> : null}</span>
+                    <strong>Piper-plus</strong>
+                    <small>{PIPER_PLUS_MODEL_LABEL}. {selectedPiperLanguage.label}. MIT runtime, lazy model.</small>
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className={engine === 'browser' ? 'engine-card selected' : 'engine-card'}
@@ -2498,6 +2598,18 @@ function App() {
                   <small>Native speech playback when Kokoro cannot run.</small>
                 </button>
               </div>
+              <label className="toggle-row experimental-engine-toggle" htmlFor="experimental-piper" aria-label="Enable experimental Piper-plus">
+                <input
+                  id="experimental-piper"
+                  type="checkbox"
+                  checked={experimentalPiperEnabled}
+                  onChange={(event) => setExperimentalPiperEnabled(event.target.checked)}
+                />
+                <span>
+                  <strong>Enable experimental Piper-plus</strong>
+                  <small>{piperPlusSupport.supported ? 'Lazy-loads piper-plus, ONNX Runtime, WASM G2P, and a Tsukuyomi-chan model only when selected.' : 'Requires WebAssembly and IndexedDB support.'}</small>
+                </span>
+              </label>
               <div className="engine-status">
                 <span className="status-dot" aria-hidden="true" />
                 <span>{engineStatus}</span>
@@ -2574,6 +2686,7 @@ function App() {
                   <span title={transformersReadiness.criteria.map((criterion) => `${criterion.label}: ${criterion.met ? 'pass' : 'pending'}`).join(' | ')}>
                     Transformers: {TRANSFORMERS_RUNTIME_VERSION}
                   </span>
+                  <span title={piperPlusSupport.notes.join(' ')}>Piper: {piperPlusSupport.supported ? 'available' : 'unavailable'}</span>
                 </div>
                 <div className="diagnostics-actions">
                   <button type="button" onClick={handleCopyDiagnostics} disabled={diagnosticsAction !== null}>
@@ -2713,6 +2826,26 @@ function App() {
                     </div>
                   ))}
                 </div>
+              </>
+            ) : engine === 'piper' ? (
+              <>
+                <label className="control-label" htmlFor="piper-language">
+                  Piper language
+                </label>
+                <select
+                  id="piper-language"
+                  value={piperLanguage}
+                  onChange={(event) => setPiperLanguage(event.target.value as PiperPlusLanguage)}
+                >
+                  {PIPER_PLUS_LANGUAGES.map((language) => (
+                    <option value={language.id} key={language.id}>
+                      {language.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="engine-note">
+                  {PIPER_PLUS_MODEL_LABEL} uses Piper-plus {PIPER_PLUS_PACKAGE_VERSION}; model and WASM assets load only on first Piper generation.
+                </p>
               </>
             ) : (
               <>
@@ -3162,7 +3295,7 @@ function App() {
                 <FileText size={16} aria-hidden="true" />
                 Queue
               </button>
-              {engine === 'browser' ? <small className="queue-disabled-note">Queue export is unavailable for Browser voices.</small> : null}
+              {queueDisabledReason && (engine === 'browser' || engine === 'piper') ? <small className="queue-disabled-note">{queueDisabledReason}</small> : null}
               <button type="button" className="secondary-action" onClick={clearOutputs}>
                 <Trash2 size={16} aria-hidden="true" />
                 Clear output
@@ -3174,7 +3307,7 @@ function App() {
         <section className="technical-note" id="docs">
           <span>How it works</span>
           <p>
-            Kokoro 82M and Supertonic run locally in your browser via Transformers.js; KittenTTS runs through its WebGPU shader engine. English Kokoro WASM q8 loads from this site first; multilingual voice bins, timestamped Kokoro, Supertonic, KittenTTS weights, and Kokoro WebGPU fp32 remain HF-hosted. No server involved.
+            Kokoro 82M and Supertonic run locally in your browser via Transformers.js; KittenTTS runs through its WebGPU shader engine; experimental Piper-plus runs through WASM and ONNX Runtime when enabled. English Kokoro WASM q8 loads from this site first; multilingual voice bins, timestamped Kokoro, Supertonic, KittenTTS weights, Piper-plus model assets, and Kokoro WebGPU fp32 remain HF-hosted. No server involved.
           </p>
           <a href="https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX" target="_blank" rel="noreferrer">
             Model card <ExternalLink size={15} aria-hidden="true" />
@@ -3232,7 +3365,7 @@ function App() {
                   ))}
                 </tbody>
               </table>
-              <p>The GPL ephone/eSpeak path is not used for English Kokoro, Supertonic, KittenTTS, Browser voices, or normal export utilities.</p>
+              <p>The GPL ephone/eSpeak path is not used for English Kokoro, Supertonic, KittenTTS, experimental Piper-plus, Browser voices, or normal export utilities.</p>
             </div>
           </div>
 
@@ -3268,6 +3401,7 @@ git subtree push --prefix dist origin gh-pages
               resetKokoroSession()
               resetTimestampedKokoroSession()
               resetWorker()
+              resetPiperPlusSession()
               for (const url of previewCacheRef.current.values()) {
                 URL.revokeObjectURL(url)
               }

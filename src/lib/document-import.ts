@@ -45,7 +45,9 @@ export async function extractPdfTextFromArrayBuffer(buffer: ArrayBuffer): Promis
   const loadingTask = pdfjs.getDocument({
     data: new Uint8Array(buffer),
     disableWorker: true,
+    disableFontFace: false,
     isEvalSupported: false,
+    useSystemFonts: true,
   } as Parameters<typeof pdfjs.getDocument>[0] & { disableWorker: boolean })
   const pdf = await loadingTask.promise
   try {

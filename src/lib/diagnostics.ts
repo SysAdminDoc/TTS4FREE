@@ -1,6 +1,7 @@
 import { opusSupported } from './encode.ts'
 import { checkM4bCapability, type M4bCapability } from './m4b.ts'
 import { readModelCacheStatus, type ModelCacheSummary } from './model-cache.ts'
+import { piperPlusRuntimeSupport, type PiperPlusRuntimeSupport } from './piper-plus.ts'
 import {
   detectCrossOriginStorage,
   transformersUpgradeReadiness,
@@ -76,6 +77,7 @@ export type DiagnosticsBundle = {
     }
     crossOriginStorage: CrossOriginStorageStatus
     transformers: TransformersUpgradeReadiness
+    piperPlus: PiperPlusRuntimeSupport
   }
   storage: {
     browser: StorageDiagnostics
@@ -107,6 +109,7 @@ export type DiagnosticsProbes = {
   opus?: () => boolean
   crossOriginStorage?: () => CrossOriginStorageStatus
   transformers?: () => TransformersUpgradeReadiness
+  piperPlus?: () => PiperPlusRuntimeSupport
   recentEvents?: () => DiagnosticEvent[]
 }
 
@@ -201,6 +204,17 @@ export async function collectDiagnostics(
     readyToSwitch: false,
     criteria: [],
   } satisfies TransformersUpgradeReadiness)
+  const piperPlus = readSyncSafely(probes.piperPlus ?? piperPlusRuntimeSupport, {
+    packageVersion: 'unknown',
+    model: 'unknown',
+    modelLabel: 'unknown',
+    supported: false,
+    wasm: false,
+    indexedDb: false,
+    webGpu: false,
+    defaultFirstLoad: false,
+    notes: ['Could not verify Piper-plus runtime support.'],
+  } satisfies PiperPlusRuntimeSupport)
 
   return {
     schemaVersion: 1,
@@ -231,6 +245,7 @@ export async function collectDiagnostics(
       },
       crossOriginStorage,
       transformers,
+      piperPlus,
     },
     storage: {
       browser: storage,

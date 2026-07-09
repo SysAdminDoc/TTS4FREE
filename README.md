@@ -1,13 +1,13 @@
 # BetterTTS
 
-[![Version](https://img.shields.io/badge/version-0.12.0-blue.svg)](#)
+[![Version](https://img.shields.io/badge/version-0.13.0-blue.svg)](#)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-GitHub%20Pages-24292f.svg)](https://sysadmindoc.github.io/BetterTTS/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178c6.svg)](#)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](#)
-[![Tests](https://img.shields.io/badge/tests-152%20passing-53d889.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-159%20passing-53d889.svg)](#)
 
-**Free client-side text-to-speech studio.** Kokoro 82M, Supertonic, and KittenTTS run entirely in your browser — no server, no signup, no usage caps (5,000 characters per run, unlimited runs). Export WAV, MP3, Opus, or chaptered M4B — keep everything private.
+**Free client-side text-to-speech studio.** Kokoro 82M, Supertonic, KittenTTS, and an experimental Piper-plus path run entirely in your browser — no server, no signup, no usage caps (5,000 characters per run, unlimited runs). Export WAV, MP3, Opus, or chaptered M4B — keep everything private.
 
 [**Try it live**](https://sysadmindoc.github.io/BetterTTS/) | [Changelog](CHANGELOG.md)
 
@@ -40,6 +40,7 @@ Every cloud TTS service gates you behind signups, character limits, and paid tie
 - **Kokoro 82M** neural TTS via `kokoro-js` + Transformers.js — top-tier voice quality (MOS 4.3-4.5)
 - **Supertonic speed engine** via Transformers.js — 10 English F/M voices, 44.1 kHz fp32 output, lazy-loaded only when selected
 - **KittenTTS lightweight engine** via `kitten-tts-webgpu` — 8 English voices, WebGPU shader inference, and selectable Nano 15M / Micro 40M / Mini 80M models
+- **Experimental Piper-plus engine** behind an explicit flag — Tsukuyomi-chan model, MIT package/runtime path, WASM + ONNX Runtime Web, and JA/EN/ZH/KO/ES/FR/PT/SV language targets
 - **41 Kokoro voices** — 28 English voices plus Spanish, French, Hindi, Italian, and Brazilian Portuguese voices
 - **Multilingual Kokoro pack** — ephone/eSpeak NG phonemization routes `es`, `fr`, `it`, `pt-BR`, and `hi` through the direct Kokoro model path
 - **WebGPU acceleration** with automatic WASM q8 fallback for devices without GPU support
@@ -115,7 +116,7 @@ Open `http://localhost:5173/BetterTTS/` in your browser.
 
 ## Troubleshooting
 
-Use **Control console -> Diagnostics -> Copy JSON** when reporting a local browser/runtime issue. The bundle includes app version, browser details, WebGPU adapter status, WebCodecs AAC/Opus support, Cross-Origin Storage detection, Transformers.js upgrade readiness, storage quota, model-cache summary, selected model routes, and recent sanitized warnings/errors. It does not include script text or imported article URLs.
+Use **Control console -> Diagnostics -> Copy JSON** when reporting a local browser/runtime issue. The bundle includes app version, browser details, WebGPU adapter status, WebCodecs AAC/Opus support, Cross-Origin Storage detection, Transformers.js upgrade readiness, Piper-plus runtime support, storage quota, model-cache summary, selected model routes, and recent sanitized warnings/errors. It does not include script text or imported article URLs.
 
 BetterTTS currently pins `@huggingface/transformers` to 4.2.0 through the root npm override. Do not switch to 4.3+ until the candidate install dedupes with `npm ls @huggingface/transformers`, the Kokoro/Supertonic/Kitten compatibility tests pass under that candidate (`npx vitest run src/lib/transformers-v4.test.ts src/lib/kokoro-assets.test.ts src/lib/supertonic.test.ts src/lib/kitten.test.ts`), and the full `npm test`, `npm run lint`, `npm run build`, and `npm run smoke` checks pass. Cross-Origin Storage is feature-detected only; the default model path stays on the per-origin Cache API until native browser support is available without an extension or polyfill.
 
@@ -127,7 +128,7 @@ Run `npm run smoke` for a local production-build browser check. It serves `dist/
 |---|---|
 | Framework | React 19 + TypeScript 6 |
 | Build | Vite 8 |
-| TTS Model | Kokoro 82M via `kokoro-js` 1.2.1 + Transformers.js 4.2.0; timestamped Kokoro via direct ONNX output; Supertonic via Transformers.js 4.2.0; KittenTTS via `kitten-tts-webgpu` |
+| TTS Model | Kokoro 82M via `kokoro-js` 1.2.1 + Transformers.js 4.2.0; timestamped Kokoro via direct ONNX output; Supertonic via Transformers.js 4.2.0; KittenTTS via `kitten-tts-webgpu`; experimental Piper-plus via `piper-plus` 0.6.0 + ONNX Runtime Web |
 | MP3 Encoding | `@breezystack/lamejs` (LGPL-3.0, browser LAME) |
 | M4B Export | WebCodecs AAC preflight + direct ISO BMFF writer with QuickTime/Nero chapter metadata |
 | Pitch Shifting | `signalsmith-stretch` (MIT, AudioWorklet/WASM) |
@@ -135,7 +136,7 @@ Run `npm run smoke` for a local production-build browser check. It serves `dist/
 | Document Import | `pdfjs-dist` for PDF text; `fflate` + XML parsing for EPUB/DOCX |
 | ZIP Packaging | `fflate` |
 | Icons | `lucide-react` |
-| Testing | Vitest (152 tests across 20 suites) + Playwright smoke |
+| Testing | Vitest (159 tests across 22 suites) + Playwright smoke |
 | Linting | oxlint |
 | Hosting | GitHub Pages (static, no backend) |
 
@@ -149,6 +150,7 @@ src/
 ├── main.tsx                 # React entry point + SW registration
 ├── lib/
 │   ├── kokoro.ts            # Model loader, WebGPU probe, WASM fallback
+│   ├── engine-registry.ts   # Engine capability flags and queue boundaries
 │   ├── kokoro-assets.ts     # Pages-hosted q8 asset routing + HF fallback
 │   ├── kokoro-multilingual.ts # ephone + direct Kokoro model path for es/fr/it/pt-BR/hi
 │   ├── kokoro-timestamps.ts # Timestamped Kokoro loader and word cue alignment
@@ -158,6 +160,7 @@ src/
 │   ├── playback.ts          # Read-along resume and sentence navigation
 │   ├── supertonic.ts        # Supertonic pipeline loader and voice metadata
 │   ├── kitten.ts            # KittenTTS WebGPU wrapper, metadata, and WAV parser
+│   ├── piper-plus.ts        # Experimental Piper-plus lazy wrapper and support diagnostics
 │   ├── encode.ts            # WAV/MP3 encoding, pitch shift, BGM mixing
 │   ├── m4b.ts               # WebCodecs AAC + M4B chapter muxing
 │   ├── wav.ts               # Raw PCM → WAV encoder
@@ -187,7 +190,7 @@ This project does not use GitHub Actions. Build and publish locally:
 npm run deploy
 ```
 
-The deploy script builds `dist/`, syncs the Pages-hosted Kokoro q8 model assets into `dist/models/`, and force-pushes it to the `gh-pages` branch from a disposable git worktree, so your working tree is never modified. Then in repository settings: **Pages** → Source: `gh-pages` branch, folder: `/`.
+The deploy script builds `dist/`, syncs the Pages-hosted Kokoro q8 model assets and experimental Piper-plus Tsukuyomi-chan assets into `dist/models/`, and force-pushes it to the `gh-pages` branch from a disposable git worktree, so your working tree is never modified. Then in repository settings: **Pages** -> Source: `gh-pages` branch, folder: `/`.
 
 ## Voice Catalog
 
@@ -233,6 +236,8 @@ Supertonic is available as a separate English speed engine: 66M parameters, 10 v
 
 KittenTTS is available as a separate English lightweight engine: Nano 15M / 24 MB by default, Micro 40M / 41 MB, Mini 80M / 78 MB, 8 voices, 24,000 Hz output, WebGPU-only shader inference, MIT package code, and Apache-2.0 model weights. The package is lazy-loaded and model weights stay HF-hosted until the engine is selected.
 
+Piper-plus is available behind **Enable experimental Piper-plus** in the Control console: `piper-plus` 0.6.0, Tsukuyomi-chan (`ayousanz/piper-plus-tsukuyomi-chan`), 22,050 Hz output, JA/EN/ZH/KO/ES/FR/PT/SV language targets, MIT package/runtime path, and ONNX Runtime Web. The engine is direct-generation only in this prototype; it is not added to the persistent queue yet. Piper package code, the multilingual WASM G2P, ONNX Runtime, and the model are lazy-loaded only after the flag is enabled and Piper-plus is selected. Deployed builds prefer the same-origin `dist/models/ayousanz/piper-plus-tsukuyomi-chan/` copy; local builds fall back to Hugging Face when that asset has not been synced.
+
 Word timestamps are available as an opt-in Kokoro mode using `onnx-community/Kokoro-82M-v1.0-ONNX-timestamped`; the extra q8 model stays HF-hosted and powers word-level SRT/VTT plus follow-along highlighting.
 
 ## Runtime Licenses
@@ -245,6 +250,7 @@ BetterTTS application code is MIT. Runtime dependencies and model paths carry th
 | `kokoro-js`, Kokoro ONNX, Transformers.js, `phonemizer` | Apache-2.0 | Kokoro, timestamps, English phonemization |
 | `ephone` / eSpeak NG WASM | GPL-3.0-or-later | Loaded only for multilingual Kokoro voices: Spanish, French, Hindi, Italian, Brazilian Portuguese |
 | `kitten-tts-webgpu` | MIT | KittenTTS browser runtime; Kitten model weights are Apache-2.0 |
+| `piper-plus`, `@piper-plus/g2p`, `onnxruntime-web` | MIT | Experimental Piper-plus engine; Tsukuyomi-chan model assets load on demand |
 | Supertonic ONNX model | OpenRAIL | HF-hosted English speed engine |
 | `@breezystack/lamejs` | LGPL-3.0 | MP3 export |
 | `pdfjs-dist` | Apache-2.0 | Local PDF text extraction |

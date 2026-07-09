@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.13.0 - 2026-07-09
+
 ### Added
 - Added an offline pack manager in the control console with per-engine cache status, app-shell separation, Kokoro q8 prefetch, and selective cache clearing.
 - Added README and in-app runtime license disclosure, including the GPL-3.0-or-later ephone/eSpeak multilingual path and a local runtime license check command.
@@ -13,10 +15,17 @@
 - Added local PDF and DOCX import adapters; PDF text extraction uses lazy PDF.js, DOCX parsing uses existing ZIP/XML tooling, and imports run through the existing cleanup toggles.
 - Added inline queue segment/chapter editing with safe single-chunk regeneration; existing audio and exports stay intact until replacement synthesis succeeds.
 - Added guarded Cross-Origin Storage detection plus Transformers.js 4.3 upgrade readiness diagnostics without changing the default per-origin model cache behavior.
+- Added an experimental Piper-plus engine behind a persisted flag, with lazy `piper-plus`/ONNX Runtime/WASM loading, Tsukuyomi-chan language selection, direct clip generation, diagnostics support, and MIT runtime disclosure.
 
 ### Changed
 - Split EPUB parsing and multilingual Kokoro runtime paths into on-demand chunks; the production worker bundle now stays small on first load and the fflate static/dynamic import warning is gone.
 - Migrated persistent queue jobs to an engine-aware schema so Kokoro, Supertonic, and KittenTTS jobs preserve their voice/model/settings and v1 Kokoro jobs migrate on read.
+
+### Fixed
+- Stabilized PDF text extraction under local Vitest/browser-like runs by enabling PDF.js font-face/system-font handling explicitly.
+
+### Tests
+- 114 -> 159 assertions across 22 suites, adding coverage for offline cache management, runtime readiness diagnostics, document imports, playback resume, queue segment editing, engine registry behavior, and Piper-plus metadata/audio conversion.
 
 ## v0.12.0 - 2026-07-09
 
