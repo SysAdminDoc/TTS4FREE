@@ -3,6 +3,8 @@ import {
   Captions,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Download,
   ExternalLink,
   FileText,
@@ -47,6 +49,16 @@ import {
   readModelCacheStatus,
 } from './lib/model-cache.ts'
 import { type QueueEngine, type QueueJob, deleteJob, getChunkBlob, jobProgress, listJobs, saveChunkBlob, saveJob } from './lib/queue.ts'
+import {
+  clampResumeTime,
+  clearPlaybackState,
+  cueIndexAtTime,
+  formatPlaybackTime,
+  loadPlaybackState,
+  nextCueIndex,
+  previousCueIndex,
+  savePlaybackState,
+} from './lib/playback.ts'
 import {
   KITTEN_DEFAULT_MODEL,
   KITTEN_MODELS,
@@ -217,61 +229,155 @@ type ResultRowProps = {
   onSave: (result: AudioResult) => void
 }
 
-function ResultRow({ result, isSpeaking, onReplay, onShare, onSave }: ResultRowProps) {
+type PlaybackAudioProps = {
+  playbackKey: string
+  src: string
+  label: string
+  cues?: Cue[]
+  vttUrl?: string
+}
+
+function PlaybackAudio({ playbackKey, src, label, cues: cueList, vttUrl }: PlaybackAudioProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const activeCueRef = useRef<HTMLButtonElement | null>(null)
   const [followAlong, setFollowAlong] = useState(false)
   const [activeIdx, setActiveIdx] = useState(-1)
-  const cues = useMemo(() => result.cues ?? [], [result.cues])
+  const [resumeNote, setResumeNote] = useState<string | null>(null)
+  const restoredRef = useRef(false)
+  const cues = useMemo(() => cueList ?? [], [cueList])
+
+  useEffect(() => {
+    restoredRef.current = false
+    setActiveIdx(-1)
+    setResumeNote(null)
+  }, [playbackKey, src])
 
   useEffect(() => {
     const el = audioRef.current
-    if (!el || !followAlong || cues.length === 0) return
-    let timer: ReturnType<typeof setInterval> | null = null
-    const sync = () => {
-      const t = el.currentTime
-      let idx = -1
-      for (let i = 0; i < cues.length; i++) {
-        if (t >= cues[i].startSec && t < cues[i].endSec) {
-          idx = i
-          break
-        }
+    if (!el) return
+
+    const activeCue = () => cueIndexAtTime(cues, el.currentTime)
+    const persist = () => {
+      const idx = activeCue()
+      setActiveIdx((current) => (current === idx ? current : idx))
+      savePlaybackState(playbackKey, {
+        timeSec: el.currentTime,
+        cueIndex: idx >= 0 ? idx : undefined,
+      })
+    }
+    const restore = () => {
+      if (restoredRef.current) return
+      restoredRef.current = true
+      const saved = loadPlaybackState(playbackKey)
+      if (!saved) return
+      const resumeAt = clampResumeTime(saved.timeSec, el.duration)
+      if (resumeAt <= 0) {
+        clearPlaybackState(playbackKey)
+        return
       }
-      setActiveIdx(idx)
+      el.currentTime = resumeAt
+      const savedCue = typeof saved.cueIndex === 'number' && cues[saved.cueIndex] ? saved.cueIndex : cueIndexAtTime(cues, resumeAt)
+      setActiveIdx(savedCue)
+      const sentence = savedCue >= 0 ? ` - sentence ${savedCue + 1}` : ''
+      setResumeNote(`Resumed at ${formatPlaybackTime(resumeAt)}${sentence}`)
     }
-    const start = () => {
-      sync()
-      if (!timer) timer = setInterval(sync, 100)
-    }
-    const stop = () => {
-      if (timer) {
-        clearInterval(timer)
-        timer = null
-      }
-    }
+
     const end = () => {
-      stop()
+      clearPlaybackState(playbackKey)
       setActiveIdx(-1)
+      setResumeNote(null)
     }
-    el.addEventListener('play', start)
-    el.addEventListener('pause', stop)
-    el.addEventListener('seeked', sync)
+
+    el.addEventListener('loadedmetadata', restore)
+    el.addEventListener('timeupdate', persist)
+    el.addEventListener('pause', persist)
+    el.addEventListener('seeked', persist)
     el.addEventListener('ended', end)
-    if (!el.paused) start()
+    if (el.readyState >= 1) restore()
     return () => {
-      stop()
-      el.removeEventListener('play', start)
-      el.removeEventListener('pause', stop)
-      el.removeEventListener('seeked', sync)
+      el.removeEventListener('loadedmetadata', restore)
+      el.removeEventListener('timeupdate', persist)
+      el.removeEventListener('pause', persist)
+      el.removeEventListener('seeked', persist)
       el.removeEventListener('ended', end)
     }
-  }, [followAlong, cues])
+  }, [playbackKey, cues])
 
   useEffect(() => {
-    if (activeIdx < 0) return
+    if (!followAlong || activeIdx < 0) return
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
     activeCueRef.current?.scrollIntoView({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' })
-  }, [activeIdx])
+  }, [activeIdx, followAlong])
+
+  const seekCue = (index: number) => {
+    const cue = cues[index]
+    const el = audioRef.current
+    if (!cue || !el) return
+    el.currentTime = cue.startSec + 0.001
+    savePlaybackState(playbackKey, { timeSec: el.currentTime, cueIndex: index })
+    setActiveIdx(index)
+    el.play().catch(() => {})
+  }
+
+  const seekRelativeCue = (direction: -1 | 1) => {
+    const el = audioRef.current
+    if (!el || cues.length === 0) return
+    const target = direction < 0 ? previousCueIndex(cues, el.currentTime) : nextCueIndex(cues, el.currentTime)
+    if (target >= 0) seekCue(target)
+  }
+
+  return (
+    <div className="playback-block">
+      <audio ref={audioRef} controls preload="metadata" src={src} aria-label={label}>
+        <track kind="captions" src={vttUrl ?? EMPTY_VTT_URL} srcLang="en" label={vttUrl ? 'English' : 'No captions'} />
+      </audio>
+      <div className="playback-tools" aria-label={`Playback controls for ${label}`}>
+        {cues.length > 0 ? (
+          <>
+            <button type="button" onClick={() => seekRelativeCue(-1)} aria-label={`Previous sentence for ${label}`}>
+              <ChevronLeft size={15} aria-hidden="true" />
+              Sentence
+            </button>
+            <button type="button" onClick={() => seekRelativeCue(1)} aria-label={`Next sentence for ${label}`}>
+              Sentence
+              <ChevronRight size={15} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setFollowAlong(!followAlong)}
+              aria-pressed={followAlong}
+              className={followAlong ? 'follow-active' : undefined}
+            >
+              <Captions size={15} aria-hidden="true" />
+              Follow
+            </button>
+          </>
+        ) : (
+          <small>{resumeNote ?? 'Position saves locally for this clip.'}</small>
+        )}
+        {resumeNote && cues.length > 0 ? <small>{resumeNote}</small> : null}
+      </div>
+      {followAlong && cues.length > 0 ? (
+        <div className="read-along" aria-label="Follow along transcript">
+          {cues.map((cue, i) => (
+            <button
+              key={cue.index}
+              ref={i === activeIdx ? activeCueRef : null}
+              type="button"
+              className={i === activeIdx ? 'cue active' : 'cue'}
+              onClick={() => seekCue(i)}
+            >
+              {cue.text}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function ResultRow({ result, isSpeaking, onReplay, onShare, onSave }: ResultRowProps) {
+  const cues = result.cues ?? []
 
   return (
     <div className="result-row">
@@ -282,9 +388,7 @@ function ResultRow({ result, isSpeaking, onReplay, onShare, onSave }: ResultRowP
         <span>{result.size}</span>
       </div>
       {result.url ? (
-        <audio ref={audioRef} controls src={result.url} aria-label={result.filename}>
-          <track kind="captions" src={result.vttUrl ?? EMPTY_VTT_URL} srcLang="en" label={result.vttUrl ? 'English' : 'No captions'} />
-        </audio>
+        <PlaybackAudio playbackKey={`clip:${result.id}`} src={result.url} label={result.filename} cues={cues} vttUrl={result.vttUrl} />
       ) : null}
       <div className="result-actions">
         {result.replayText ? (
@@ -309,17 +413,6 @@ function ResultRow({ result, isSpeaking, onReplay, onShare, onSave }: ResultRowP
             <Share2 size={16} aria-hidden="true" />
           </button>
         ) : null}
-        {result.url && cues.length > 0 ? (
-          <button
-            type="button"
-            onClick={() => setFollowAlong(!followAlong)}
-            aria-pressed={followAlong}
-            className={followAlong ? 'follow-active' : undefined}
-          >
-            <Captions size={16} aria-hidden="true" />
-            Follow
-          </button>
-        ) : null}
         {result.srtUrl && result.vttUrl ? (
           <>
             <a href={result.srtUrl} download={result.filename.replace(/\.\w+$/, '.srt')}>
@@ -333,25 +426,126 @@ function ResultRow({ result, isSpeaking, onReplay, onShare, onSave }: ResultRowP
           </>
         ) : null}
       </div>
-      {followAlong && cues.length > 0 ? (
-        <div className="read-along" aria-label="Follow along transcript">
-          {cues.map((cue, i) => (
-            <button
-              key={cue.index}
-              ref={i === activeIdx ? activeCueRef : null}
-              type="button"
-              className={i === activeIdx ? 'cue active' : 'cue'}
-              onClick={() => {
-                const el = audioRef.current
-                if (!el) return
-                el.currentTime = cue.startSec + 0.001
-                el.play().catch(() => {})
-              }}
-            >
-              {cue.text}
-            </button>
-          ))}
-        </div>
+    </div>
+  )
+}
+
+type LibraryClipRowProps = {
+  clip: ClipRecord
+  onDeleted: (clipId: string) => void
+}
+
+function cueDataUrl(cues?: Cue[]): string | undefined {
+  if (!cues?.length) return undefined
+  return `data:text/vtt;charset=utf-8,${encodeURIComponent(toVTT(cues))}`
+}
+
+function LibraryClipRow({ clip, onDeleted }: LibraryClipRowProps) {
+  const [url, setUrl] = useState<string | null>(null)
+  const vttUrl = useMemo(() => cueDataUrl(clip.cues), [clip.cues])
+
+  useEffect(() => {
+    return () => {
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [url])
+
+  const loadPlayer = async () => {
+    if (url) return
+    const blob = await getClipBlob(clip.id)
+    if (!blob) return
+    setUrl(URL.createObjectURL(blob))
+  }
+
+  const downloadClip = async () => {
+    const blob = await getClipBlob(clip.id)
+    if (!blob) return
+    const downloadUrl = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = downloadUrl
+    a.download = clip.filename
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000)
+  }
+
+  const removeClip = () => {
+    deleteClip(clip.id)
+      .then(() => {
+        if (url) URL.revokeObjectURL(url)
+        onDeleted(clip.id)
+      })
+      .catch(() => {})
+  }
+
+  return (
+    <div className="result-row library-row">
+      <div className="result-meta">
+        <span className="ready-dot" aria-hidden="true" />
+        <strong>{clip.label}</strong>
+        <span>{clip.duration}</span>
+        <span>{formatBytes(clip.size)}</span>
+        {clip.cues?.length ? <span>{clip.cues.length} cues</span> : <span>time resume</span>}
+      </div>
+      {url ? (
+        <PlaybackAudio playbackKey={`clip:${clip.id}`} src={url} label={clip.filename} cues={clip.cues} vttUrl={vttUrl} />
+      ) : null}
+      <div className="result-actions">
+        <button type="button" onClick={loadPlayer}>
+          <Play size={16} aria-hidden="true" />
+          {url ? 'Loaded' : 'Play'}
+        </button>
+        <button type="button" onClick={downloadClip}>
+          <Download size={16} aria-hidden="true" />
+          Download
+        </button>
+        <button type="button" onClick={removeClip}>
+          <Trash2 size={16} aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+type QueueChunkPlayerProps = {
+  jobId: string
+  chunk: QueueJob['chunks'][number]
+  format: AudioFormat
+}
+
+function QueueChunkPlayer({ jobId, chunk, format }: QueueChunkPlayerProps) {
+  const [url, setUrl] = useState<string | null>(null)
+  const vttUrl = useMemo(() => cueDataUrl(chunk.cues), [chunk.cues])
+  const label = `Chunk ${chunk.index + 1}: ${chunk.chapterTitle ?? chunk.text.slice(0, 38)}`
+
+  useEffect(() => {
+    return () => {
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [url])
+
+  const loadPlayer = async () => {
+    if (url) return
+    const blob = await getChunkBlob(jobId, chunk.index)
+    if (!blob) return
+    setUrl(URL.createObjectURL(blob))
+  }
+
+  return (
+    <div className="queue-chunk-row">
+      <div className="queue-chunk-meta">
+        <strong>{String(chunk.index + 1).padStart(3, '0')}</strong>
+        <span>{chunk.chapterTitle ?? chunk.text}</span>
+        <small>
+          {chunk.duration ?? format.toUpperCase()}
+          {chunk.cues?.length ? ` - ${chunk.cues.length} cues` : ' - time resume'}
+        </small>
+      </div>
+      <button type="button" onClick={loadPlayer}>
+        <Play size={15} aria-hidden="true" />
+        {url ? 'Loaded' : 'Play'}
+      </button>
+      {url ? (
+        <PlaybackAudio playbackKey={`queue:${jobId}:${chunk.index}`} src={url} label={label} cues={chunk.cues} vttUrl={vttUrl} />
       ) : null}
     </div>
   )
@@ -1094,7 +1288,7 @@ function App() {
       zipFiles[filename] = blob
       setResults([...generated])
       saveClip(
-        { id: result.id, filename, label: result.label, voice: job.voice, speed, createdAt: Date.now(), size: blob.size, duration: result.duration },
+        { id: result.id, filename, label: result.label, voice: job.voice, speed, createdAt: Date.now(), size: blob.size, duration: result.duration, cues: result.cues },
         blob,
       )
         .then(() => enforceLibraryCap())
@@ -1521,15 +1715,34 @@ function App() {
         try {
           const sentences = splitIntoSentences(applyPronunciations(chunk.text))
           const parts: Float32Array[] = []
+          const cues: Cue[] = []
+          let sampleOffset = 0
+          let cueIndex = 1
           for (const sentence of sentences) {
             if (abortRef.current) break
             const audio = await synthesize(sentence, job.voice, job.speed)
-            if (audio) parts.push(audio.samples)
+            if (audio) {
+              const startSec = sampleOffset / sampleRate
+              parts.push(audio.samples)
+              sampleOffset += audio.samples.length
+              const endSec = sampleOffset / sampleRate
+              if (audio.wordCues?.length) {
+                for (const cue of audio.wordCues) {
+                  const wordStart = Math.max(startSec, Math.min(endSec, startSec + cue.startSec))
+                  const wordEnd = Math.max(wordStart, Math.min(endSec, startSec + cue.endSec))
+                  if (wordEnd > wordStart) cues.push({ index: cueIndex++, startSec: wordStart, endSec: wordEnd, text: cue.text })
+                }
+              } else {
+                cues.push({ index: cueIndex++, startSec, endSec, text: sentence })
+              }
+            }
           }
           if (parts.length > 0) {
             const raw = concatFloat32Arrays(parts)
             const blob = await encodeAudio(raw, sampleRate, job.format, job.bitrate)
             await saveChunkBlob(jobId, chunk.index, blob)
+            chunk.duration = `${(raw.length / sampleRate).toFixed(1)}s`
+            chunk.cues = cues.length > 0 ? cues : undefined
             chunk.status = 'done'
           } else {
             chunk.status = 'failed'
@@ -1918,6 +2131,7 @@ function App() {
                   {queueJobs.map((job) => {
                     const { done, total, pct } = jobProgress(job)
                     const isActive = activeJobId === job.id
+                    const doneChunks = job.chunks.filter((chunk) => chunk.status === 'done')
                     return (
                       <div className="result-row" key={job.id}>
                         <div className="result-meta">
@@ -1973,6 +2187,13 @@ function App() {
                             </button>
                           ) : null}
                         </div>
+                        {doneChunks.length > 0 ? (
+                          <div className="queue-chunk-list" aria-label={`${job.title} completed chunks`}>
+                            {doneChunks.map((chunk) => (
+                              <QueueChunkPlayer key={chunk.index} jobId={job.id} chunk={chunk} format={job.format} />
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                     )
                   })}
@@ -2007,44 +2228,7 @@ function App() {
                 </div>
                 <div className="result-list">
                   {library.map((clip) => (
-                    <div className="result-row library-row" key={clip.id}>
-                      <div className="result-meta">
-                        <span className="ready-dot" aria-hidden="true" />
-                        <strong>{clip.label}</strong>
-                        <span>{clip.duration}</span>
-                        <span>{formatBytes(clip.size)}</span>
-                      </div>
-                      <div className="result-actions">
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            const blob = await getClipBlob(clip.id)
-                            if (blob) {
-                              const url = URL.createObjectURL(blob)
-                              const a = document.createElement('a')
-                              a.href = url
-                              a.download = clip.filename
-                              a.click()
-                              // Immediate revocation can abort the save in Safari.
-                              setTimeout(() => URL.revokeObjectURL(url), 1000)
-                            }
-                          }}
-                        >
-                          <Download size={16} aria-hidden="true" />
-                          Download
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            deleteClip(clip.id)
-                              .then(() => setLibrary((prev) => prev.filter((c) => c.id !== clip.id)))
-                              .catch(() => {})
-                          }}
-                        >
-                          <Trash2 size={16} aria-hidden="true" />
-                        </button>
-                      </div>
-                    </div>
+                    <LibraryClipRow key={clip.id} clip={clip} onDeleted={(id) => setLibrary((prev) => prev.filter((c) => c.id !== id))} />
                   ))}
                 </div>
               </section>

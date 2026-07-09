@@ -35,6 +35,18 @@ describe('library', () => {
     expect(await blob!.text()).toBe('payload')
   })
 
+  it('persists sentence cues with clip metadata', async () => {
+    await saveClip(
+      {
+        ...record('cues', 1),
+        cues: [{ index: 1, startSec: 0, endSec: 1.2, text: 'Cue one.' }],
+      },
+      new Blob(['payload'], { type: 'audio/wav' }),
+    )
+    const clips = await listClips()
+    expect(clips[0].cues).toEqual([{ index: 1, startSec: 0, endSec: 1.2, text: 'Cue one.' }])
+  })
+
   it('returns null for a missing blob', async () => {
     expect(await getClipBlob('nope')).toBeNull()
   })

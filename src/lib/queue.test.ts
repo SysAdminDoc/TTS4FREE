@@ -118,6 +118,25 @@ describe('queue', () => {
     expect(migrated.chunks[0].status).toBe('generating')
   })
 
+  it('migrates queue chunk playback metadata', () => {
+    const migrated = migrateQueueJob({
+      ...makeJob('playback', 1),
+      chunks: [{
+        index: 0,
+        text: 'Chunk text.',
+        status: 'done',
+        duration: '1.2s',
+        cues: [
+          { index: 1, startSec: 0, endSec: 1.2, text: 'Chunk text.' },
+          { index: 2, startSec: 1.2, endSec: 1.2, text: 'Invalid zero duration.' },
+        ],
+      }],
+    })
+
+    expect(migrated.chunks[0].duration).toBe('1.2s')
+    expect(migrated.chunks[0].cues).toEqual([{ index: 1, startSec: 0, endSec: 1.2, text: 'Chunk text.' }])
+  })
+
   it('persists engine-specific queue settings', async () => {
     const job: QueueJob = {
       ...makeJob('supertonic'),

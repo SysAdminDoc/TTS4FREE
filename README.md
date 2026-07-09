@@ -5,7 +5,7 @@
 [![Platform](https://img.shields.io/badge/platform-GitHub%20Pages-24292f.svg)](https://sysadmindoc.github.io/BetterTTS/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178c6.svg)](#)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](#)
-[![Tests](https://img.shields.io/badge/tests-131%20passing-53d889.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-141%20passing-53d889.svg)](#)
 
 **Free client-side text-to-speech studio.** Kokoro 82M, Supertonic, and KittenTTS run entirely in your browser — no server, no signup, no usage caps (5,000 characters per run, unlimited runs). Export WAV, MP3, Opus, or chaptered M4B — keep everything private.
 
@@ -52,7 +52,7 @@ Every cloud TTS service gates you behind signups, character limits, and paid tie
 - **WAV** (lossless), **MP3** (96/128/160 kbps), **Opus/WebM**, and **chaptered M4B audiobook** export with AAC capability preflight
 - **Per-line generation** with individual files + automatic chaptered ZIP bundle, including `chapters.json` for fallback workflows
 - **SRT and VTT subtitle export** with sentence-level timing, plus opt-in word-level cues from the timestamped Kokoro model
-- **Persistent clip library** — generated clips saved to IndexedDB, survive page reloads
+- **Persistent clip library** — generated clips saved to IndexedDB, survive page reloads, and restore their last playback position
 - **Web Share** for sharing audio files directly from the app (Android Chrome)
 - **Native save dialog** via `showSaveFilePicker` on Chromium, with `<a download>` fallback
 
@@ -64,7 +64,7 @@ Every cloud TTS service gates you behind signups, character limits, and paid tie
 
 ### Studio Features
 - **Dialog mode** — `[speaker:Alice]` line prefixes map to different voices for multi-character scripts
-- **Follow-along transcript** — click-to-seek sentence highlighting synced to playback
+- **Follow-along transcript** — click-to-seek sentence highlighting synced to playback, durable resume, and previous/next sentence controls
 - **Article import** — paste any URL and Readability extracts the text (plus Android share-target support)
 - **Text cleanup** — skip citations, footnotes, references, repeated page headers/footers, book metadata, URLs, markdown, and normalize audiobook numbers/units before synthesis
 - **Voice preview** — one-click preview for each voice with session-cached audio
@@ -73,7 +73,7 @@ Every cloud TTS service gates you behind signups, character limits, and paid tie
 - **Cancel button** — abort generation mid-run, keep partial results
 - **Voice blending** — weighted mix of 2-4 Kokoro voices via custom style tensors (e.g. `af_heart(2)+af_bella(1)`)
 - **EPUB import** — chapter-aware parsing with TOC title extraction, queued for batch generation
-- **Engine-aware persistent job queue** — queue Kokoro, Supertonic, and KittenTTS jobs; pause, resume, ZIP-download, and M4B audiobook export survive tab close via IndexedDB checkpointing
+- **Engine-aware persistent job queue** — queue Kokoro, Supertonic, and KittenTTS jobs; pause, resume, playable completed chunks, ZIP-download, and M4B audiobook export survive tab close via IndexedDB checkpointing
 - **M4B preflight + fallback** — queue UI reports WebCodecs AAC support before export; Firefox/Linux AAC gaps get a chaptered ZIP/Opus fallback path
 - **CPU mode** — persistent WASM switch for GPUs with corrupted WebGPU output
 
@@ -116,7 +116,7 @@ Open `http://localhost:5173/BetterTTS/` in your browser.
 
 Use **Control console -> Diagnostics -> Copy JSON** when reporting a local browser/runtime issue. The bundle includes app version, browser details, WebGPU adapter status, WebCodecs AAC/Opus support, storage quota, model-cache summary, selected model routes, and recent sanitized warnings/errors. It does not include script text or imported article URLs.
 
-Run `npm run smoke` for a local production-build browser check. It serves `dist/` at `/BetterTTS/`, verifies desktop/mobile rendering, theme switching, diagnostics copy, queue controls, M4B fallback messaging, and unexpected console noise; screenshots and `summary.json` are written to `dist/smoke/`.
+Run `npm run smoke` for a local production-build browser check. It serves `dist/` at `/BetterTTS/`, verifies desktop/mobile rendering, theme switching, diagnostics copy, queue controls, read-along playback controls, M4B fallback messaging, and unexpected console noise; screenshots and `summary.json` are written to `dist/smoke/`.
 
 ## Tech Stack
 
@@ -131,7 +131,7 @@ Run `npm run smoke` for a local production-build browser check. It serves `dist/
 | Phonemization | `phonemizer` for English + `ephone`/eSpeak NG WASM for multilingual Kokoro |
 | ZIP Packaging | `fflate` |
 | Icons | `lucide-react` |
-| Testing | Vitest (131 assertions across 17 suites) + Playwright smoke |
+| Testing | Vitest (141 assertions across 18 suites) + Playwright smoke |
 | Linting | oxlint |
 | Hosting | GitHub Pages (static, no backend) |
 

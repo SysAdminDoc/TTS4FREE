@@ -1,4 +1,5 @@
 import type { AudioFormat } from './encode.ts'
+import type { Cue } from './subtitles.ts'
 import type { KokoroLocale, VoiceId } from './voices.ts'
 
 export type ChunkStatus = 'pending' | 'generating' | 'done' | 'failed'
@@ -10,6 +11,8 @@ export type QueueChunk = {
   status: ChunkStatus
   chapterTitle?: string
   chapterIndex?: number
+  duration?: string
+  cues?: Cue[]
   blobKey?: string
   error?: string
 }
@@ -176,7 +179,22 @@ function migrateQueueChunk(raw: unknown, index: number): QueueChunk {
     status,
     chapterTitle: chunk.chapterTitle,
     chapterIndex: chunk.chapterIndex,
+    duration: typeof chunk.duration === 'string' ? chunk.duration : undefined,
+    cues: Array.isArray(chunk.cues) ? chunk.cues.filter(isCue) : undefined,
     blobKey: chunk.blobKey,
     error: chunk.error,
   }
+}
+
+function isCue(value: unknown): value is Cue {
+  const cue = value as Partial<Cue>
+  const startSec = Number(cue.startSec)
+  const endSec = Number(cue.endSec)
+  return (
+    typeof cue.index === 'number'
+    && Number.isFinite(startSec)
+    && Number.isFinite(endSec)
+    && endSec > startSec
+    && typeof cue.text === 'string'
+  )
 }

@@ -1,3 +1,5 @@
+import type { Cue } from './subtitles.ts'
+
 export type ClipRecord = {
   id: string
   filename: string
@@ -7,6 +9,7 @@ export type ClipRecord = {
   createdAt: number
   size: number
   duration: string
+  cues?: Cue[]
 }
 
 const DB_NAME = 'bettertts-library'

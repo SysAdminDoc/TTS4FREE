@@ -37,8 +37,45 @@ function runChecked(name, args) {
 
 async function seedCompletedQueueJob(page, id) {
   await page.evaluate(async (jobId) => {
+    function makeWavBlob(seconds = 3) {
+      const sampleRate = 8000
+      const samples = Math.floor(sampleRate * seconds)
+      const buffer = new ArrayBuffer(44 + samples * 2)
+      const view = new DataView(buffer)
+      const write = (offset, value) => {
+        for (let i = 0; i < value.length; i += 1) view.setUint8(offset + i, value.charCodeAt(i))
+      }
+      write(0, 'RIFF')
+      view.setUint32(4, 36 + samples * 2, true)
+      write(8, 'WAVE')
+      write(12, 'fmt ')
+      view.setUint32(16, 16, true)
+      view.setUint16(20, 1, true)
+      view.setUint16(22, 1, true)
+      view.setUint32(24, sampleRate, true)
+      view.setUint32(28, sampleRate * 2, true)
+      view.setUint16(32, 2, true)
+      view.setUint16(34, 16, true)
+      write(36, 'data')
+      view.setUint32(40, samples * 2, true)
+      for (let i = 0; i < samples; i += 1) {
+        const sample = Math.round(Math.sin((i / sampleRate) * Math.PI * 2 * 220) * 12000)
+        view.setInt16(44 + i * 2, sample, true)
+      }
+      return new Blob([buffer], { type: 'audio/wav' })
+    }
+
+    const cueSet = [
+      { index: 1, startSec: 0, endSec: 1.5, text: 'Smoke sentence one.' },
+      { index: 2, startSec: 1.5, endSec: 3, text: 'Smoke sentence two.' },
+    ]
+
     await new Promise((resolve) => {
       const deleteReq = indexedDB.deleteDatabase('bettertts-queue')
+      deleteReq.onsuccess = deleteReq.onerror = deleteReq.onblocked = () => resolve()
+    })
+    await new Promise((resolve) => {
+      const deleteReq = indexedDB.deleteDatabase('bettertts-library')
       deleteReq.onsuccess = deleteReq.onerror = deleteReq.onblocked = () => resolve()
     })
 
@@ -63,20 +100,57 @@ async function seedCompletedQueueJob(page, id) {
       voice: 'af_heart',
       language: 'en-us',
       speed: 1,
-      format: 'opus',
+      format: 'wav',
       bitrate: 96,
       chunks: [
-        { index: 0, text: 'Smoke chapter one.', status: 'done', chapterTitle: 'One', chapterIndex: 0 },
-        { index: 1, text: 'Smoke chapter two.', status: 'done', chapterTitle: 'Two', chapterIndex: 1 },
+        { index: 0, text: 'Smoke chapter one.', status: 'done', chapterTitle: 'One', chapterIndex: 0, duration: '3.0s', cues: cueSet },
+        { index: 1, text: 'Smoke chapter two.', status: 'done', chapterTitle: 'Two', chapterIndex: 1, duration: '3.0s', cues: cueSet },
       ],
     })
-    tx.objectStore('chunks').put(new Blob(['first'], { type: 'audio/webm' }), `${jobId}:0`)
-    tx.objectStore('chunks').put(new Blob(['second'], { type: 'audio/webm' }), `${jobId}:1`)
+    tx.objectStore('chunks').put(makeWavBlob(), `${jobId}:0`)
+    tx.objectStore('chunks').put(makeWavBlob(), `${jobId}:1`)
     await new Promise((resolve, reject) => {
       tx.oncomplete = resolve
       tx.onerror = () => reject(tx.error)
     })
     db.close()
+
+    const libraryDb = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('bettertts-library', 1)
+      req.onupgradeneeded = () => {
+        const db = req.result
+        if (!db.objectStoreNames.contains('clips')) db.createObjectStore('clips', { keyPath: 'id' })
+        if (!db.objectStoreNames.contains('blobs')) db.createObjectStore('blobs')
+      }
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error)
+    })
+    const libraryTx = libraryDb.transaction(['clips', 'blobs'], 'readwrite')
+    libraryTx.objectStore('clips').put({
+      id: 'smoke-library',
+      filename: 'smoke-library.wav',
+      label: 'Smoke library clip',
+      voice: 'af_heart',
+      speed: 1,
+      createdAt: Date.now(),
+      size: 48044,
+      duration: '3.0s',
+      cues: cueSet,
+    })
+    libraryTx.objectStore('blobs').put(makeWavBlob(), 'smoke-library')
+    await new Promise((resolve, reject) => {
+      libraryTx.oncomplete = resolve
+      libraryTx.onerror = () => reject(libraryTx.error)
+    })
+    libraryDb.close()
+
+    localStorage.setItem('bettertts-playback-v1', JSON.stringify({
+      version: 1,
+      items: {
+        [`queue:${jobId}:0`]: { timeSec: 1.1, cueIndex: 0, updatedAt: Date.now() },
+        'clip:smoke-library': { timeSec: 1.1, cueIndex: 0, updatedAt: Date.now() },
+      },
+    }))
   }, id)
 }
 
@@ -120,6 +194,7 @@ async function runSmoke() {
     if (!bodyLower.includes('script editor') || !bodyLower.includes('control console')) throw new Error('App shell did not render expected content')
     if (/Vite Error|Internal Server Error|Failed to compile/i.test(body)) throw new Error('Framework error overlay detected')
 
+    console.log('Checking theme and diagnostics...')
     const beforeTheme = await desktop.page.evaluate(() => document.documentElement.dataset.theme)
     await desktop.page.getByRole('button', { name: /Switch to/ }).click()
     const afterTheme = await desktop.page.evaluate(() => document.documentElement.dataset.theme)
@@ -134,12 +209,27 @@ async function runSmoke() {
       await desktop.page.getByLabel(label).waitFor({ timeout: 20000 })
     }
 
+    console.log('Checking queue playback controls...')
     const queue = desktop.page.getByLabel('Generation queue')
     await queue.scrollIntoViewIfNeeded()
     await desktop.page.getByRole('button', { name: /ZIP/ }).waitFor({ timeout: 20000 })
+    const queueChunks = desktop.page.getByLabel('Smoke queue completed chunks')
+    await queueChunks.getByRole('button', { name: 'Play' }).first().click()
+    await queueChunks.getByRole('button', { name: /Previous sentence/ }).waitFor({ timeout: 20000 })
+    await queueChunks.getByRole('button', { name: /Next sentence/ }).waitFor({ timeout: 20000 })
+    await queueChunks.getByText(/Resumed at/).waitFor({ timeout: 20000 })
+
+    console.log('Checking library playback controls...')
+    const libraryPanel = desktop.page.getByLabel('Clip library')
+    await libraryPanel.scrollIntoViewIfNeeded()
+    await libraryPanel.getByRole('button', { name: 'Play' }).click()
+    await libraryPanel.getByRole('button', { name: /Previous sentence/ }).waitFor({ timeout: 20000 })
+    await libraryPanel.getByRole('button', { name: /Next sentence/ }).waitFor({ timeout: 20000 })
+    await libraryPanel.getByText(/Resumed at/).waitFor({ timeout: 20000 })
     await desktop.page.screenshot({ path: join(smokeDir, 'desktop.png'), fullPage: false })
     await desktopContext.close()
 
+    console.log('Checking mobile fallback state...')
     const mobileContext = await browser.newContext({
       viewport: { width: 390, height: 844 },
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0',
