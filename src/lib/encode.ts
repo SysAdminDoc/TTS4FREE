@@ -271,6 +271,13 @@ export function formatMime(format: AudioFormat): string {
   return 'audio/wav'
 }
 
+export function formatFromFilename(filename: string): AudioFormat {
+  const lower = filename.toLowerCase()
+  if (lower.endsWith('.mp3')) return 'mp3'
+  if (lower.endsWith('.webm')) return 'opus'
+  return 'wav'
+}
+
 export type BgmMixResult = {
   mixed: Float32Array
   bgmEmpty: boolean

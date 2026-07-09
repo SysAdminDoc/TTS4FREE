@@ -36,7 +36,7 @@ import {
   engineQueueable,
   type EngineId,
 } from './lib/engine-registry.ts'
-import { type AudioFormat, encodeAudio, formatExtension, mixBgm, opusSupported, shiftPitch } from './lib/encode.ts'
+import { type AudioFormat, encodeAudio, formatExtension, formatFromFilename, formatMime, mixBgm, opusSupported, shiftPitch } from './lib/encode.ts'
 import { KOKORO_SAMPLE_RATE, type ProgressInfo, type RawAudioLike, loadKokoro, probeWebGpu, resetKokoroSession } from './lib/kokoro.ts'
 import { KOKORO_HF_RESOLVE_PREFIX, KOKORO_LOCAL_MODEL_PREFIX, KOKORO_MODEL_ID } from './lib/kokoro-assets.ts'
 import { loadTimestampedKokoro, resetTimestampedKokoroSession, synthesizeTimestampedKokoro } from './lib/kokoro-timestamps.ts'
@@ -1399,7 +1399,22 @@ function App() {
       audioCtx = new AudioContext({ sampleRate: outputSampleRate })
       nextPlayTime = audioCtx.currentTime + 0.05
     }
+    let streamCloseScheduled = false
+    const closeStreamContext = (delayMs = 0) => {
+      if (!audioCtx || streamCloseScheduled) return
+      const ctx = audioCtx
+      audioCtx = null
+      streamCloseScheduled = true
+      if (delayMs <= 0) {
+        ctx.close().catch(() => {})
+        return
+      }
+      setTimeout(() => {
+        ctx.close().catch(() => {})
+      }, delayMs)
+    }
 
+    try {
     const jobPlans = jobs.map((job) => {
       const segments = parsePauseTags(job.text)
       return segments.map((seg) =>
@@ -1512,15 +1527,7 @@ function App() {
     }
 
     if (audioCtx) {
-      const ctx = audioCtx
-      if (abortRef.current) {
-        ctx.close().catch(() => {})
-      } else {
-        const delayMs = Math.max(0, (nextPlayTime - ctx.currentTime) * 1000) + 200
-        setTimeout(() => {
-          ctx.close().catch(() => {})
-        }, delayMs)
-      }
+      closeStreamContext(abortRef.current ? 0 : Math.max(0, (nextPlayTime - audioCtx.currentTime) * 1000) + 200)
     }
 
     if (generated.length > 1) {
@@ -1559,6 +1566,9 @@ function App() {
     } else {
       setStatus('Local audio ready')
       showToast({ tone: 'ok', message: opts.successMessage ?? 'Audio generated locally in your browser.' })
+    }
+    } finally {
+      closeStreamContext()
     }
   }
 
@@ -1776,7 +1786,7 @@ function App() {
       const res = await fetch(result.url)
       const blob = await res.blob()
       const file = new File([blob], result.filename, {
-        type: result.filename.endsWith('.mp3') ? 'audio/mpeg' : 'audio/wav',
+        type: formatMime(formatFromFilename(result.filename)),
       })
       if (navigator.canShare({ files: [file] })) {
         await navigator.share({ files: [file], title: result.label })

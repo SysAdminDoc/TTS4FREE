@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_MP3_KBPS_24K, encodeAudio, formatExtension, formatMime, shiftPitch } from './encode.ts'
+import { MAX_MP3_KBPS_24K, encodeAudio, formatExtension, formatFromFilename, formatMime, shiftPitch } from './encode.ts'
 
 // mixBgm is not covered here: it requires OfflineAudioContext, which has no
 // Node implementation. Its zero-length and stereo guards are exercised in-app.
@@ -23,6 +23,18 @@ describe('formatExtension / formatMime', () => {
   it('maps mp3', () => {
     expect(formatExtension('mp3')).toBe('.mp3')
     expect(formatMime('mp3')).toBe('audio/mpeg')
+  })
+
+  it('maps opus webm', () => {
+    expect(formatExtension('opus')).toBe('.webm')
+    expect(formatMime('opus')).toBe('audio/webm')
+  })
+
+  it('infers generated audio formats from filenames', () => {
+    expect(formatFromFilename('chapter.wav')).toBe('wav')
+    expect(formatFromFilename('chapter.MP3')).toBe('mp3')
+    expect(formatFromFilename('chapter.webm')).toBe('opus')
+    expect(formatFromFilename('chapter')).toBe('wav')
   })
 })
 
