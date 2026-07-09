@@ -10,6 +10,7 @@
     "build": "npm run clean && npm run typecheck && vite build",
     "test": "vitest run",
     "lint": "oxlint",
+    "license:runtime": "node scripts/check-runtime-licenses.mjs",
     "preview": "vite preview",
     "deploy": "node scripts/deploy.mjs",
     "sync:kokoro": "node scripts/sync-kokoro-assets.mjs"

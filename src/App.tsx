@@ -107,6 +107,17 @@ const MODEL_ROWS = [
   ['Browser voices', 'Web Speech', 'Native', 'Device voices', 'Fallback'],
 ]
 
+const RUNTIME_LICENSE_ROWS = [
+  ['BetterTTS app code', 'MIT', 'App shell, UI, queue, exports'],
+  ['kokoro-js, Kokoro ONNX, Transformers.js, phonemizer', 'Apache-2.0', 'Kokoro, timestamps, English phonemization'],
+  ['ephone / eSpeak NG WASM', 'GPL-3.0-or-later', 'Loaded only for multilingual Kokoro voices: ES / FR / HI / IT / PT-BR'],
+  ['KittenTTS browser wrapper', 'MIT', 'Kitten model weights are Apache-2.0'],
+  ['Supertonic ONNX model', 'OpenRAIL', 'HF-hosted English speed engine'],
+  ['lamejs MP3 encoder', 'LGPL-3.0', 'MP3 export path'],
+  ['signalsmith-stretch, fflate', 'MIT', 'Pitch shift and ZIP/EPUB parsing'],
+  ['lucide-react', 'ISC', 'Interface icons'],
+]
+
 function getInitialTheme(): Theme {
   if (typeof window === 'undefined') return 'dark'
   try {
@@ -2599,6 +2610,28 @@ function App() {
               </tbody>
             </table>
             <p>Kokoro voices are wired for English, Spanish, French, Hindi, Italian, and Brazilian Portuguese. Japanese and Chinese remain unwired until a browser-safe G2P path is available.</p>
+            <div className="runtime-license-panel" aria-label="Runtime licenses">
+              <div className="section-heading">
+                <span>Runtime licenses</span>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Component</th>
+                    <th>License</th>
+                    <th>Used for</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {RUNTIME_LICENSE_ROWS.map((row) => (
+                    <tr key={row[0]}>
+                      {row.map((cell) => <td key={cell}>{cell}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p>The GPL ephone/eSpeak path is not used for English Kokoro, Supertonic, KittenTTS, Browser voices, or normal export utilities.</p>
+            </div>
           </div>
 
           <div className="hosting-panel">

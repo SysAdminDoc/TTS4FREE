@@ -114,7 +114,7 @@ Open `http://localhost:5173/BetterTTS/` in your browser.
 | Framework | React 19 + TypeScript 6 |
 | Build | Vite 8 |
 | TTS Model | Kokoro 82M via `kokoro-js` 1.2.1 + Transformers.js 4.2.0; timestamped Kokoro via direct ONNX output; Supertonic via Transformers.js 4.2.0; KittenTTS via `kitten-tts-webgpu` |
-| MP3 Encoding | `@breezystack/lamejs` (LGPL-2.1, browser LAME) |
+| MP3 Encoding | `@breezystack/lamejs` (LGPL-3.0, browser LAME) |
 | M4B Export | WebCodecs AAC + direct ISO BMFF writer with QuickTime/Nero chapter metadata |
 | Pitch Shifting | `signalsmith-stretch` (MIT, AudioWorklet/WASM) |
 | Phonemization | `phonemizer` for English + `ephone`/eSpeak NG WASM for multilingual Kokoro |
@@ -216,6 +216,27 @@ KittenTTS is available as a separate English lightweight engine: Nano 15M / 24 M
 
 Word timestamps are available as an opt-in Kokoro mode using `onnx-community/Kokoro-82M-v1.0-ONNX-timestamped`; the extra q8 model stays HF-hosted and powers word-level SRT/VTT plus follow-along highlighting.
 
+## Runtime Licenses
+
+BetterTTS application code is MIT. Runtime dependencies and model paths carry their own licenses:
+
+| Component | License | Used for |
+|---|---|---|
+| BetterTTS app code | MIT | App shell, UI, queue, exports |
+| `kokoro-js`, Kokoro ONNX, Transformers.js, `phonemizer` | Apache-2.0 | Kokoro, timestamps, English phonemization |
+| `ephone` / eSpeak NG WASM | GPL-3.0-or-later | Loaded only for multilingual Kokoro voices: Spanish, French, Hindi, Italian, Brazilian Portuguese |
+| `kitten-tts-webgpu` | MIT | KittenTTS browser runtime; Kitten model weights are Apache-2.0 |
+| Supertonic ONNX model | OpenRAIL | HF-hosted English speed engine |
+| `@breezystack/lamejs` | LGPL-3.0 | MP3 export |
+| `signalsmith-stretch`, `fflate` | MIT | Pitch shift and ZIP/EPUB parsing |
+| `lucide-react` | ISC | Interface icons |
+
+Review runtime package licenses locally with:
+
+```bash
+npm run license:runtime
+```
+
 ## Roadmap
 
 The active ROADMAP contains research-driven follow-ups from the 2026-07-09 post-v0.11.0 research pass. ROADMAP.md is gitignored and tracks only incomplete local work.
@@ -232,7 +253,7 @@ Please match the existing code style. No new dependencies without justification.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) for BetterTTS application code. See Runtime Licenses above for dependency/model paths.
 
 ---
 

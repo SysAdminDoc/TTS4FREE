@@ -1105,6 +1105,10 @@ select:focus-visible {
   border-right: 1px solid var(--border);
 }
 
+.runtime-license-panel {
+  margin-top: 22px;
+}
+
 table {
   width: 100%;
   margin-bottom: 13px;
