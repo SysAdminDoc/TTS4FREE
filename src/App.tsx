@@ -617,7 +617,7 @@ type QueueChunkPlayerProps = {
   chunk: QueueJob['chunks'][number]
   format: AudioFormat
   regenerating: boolean
-  onRegenerate: (jobId: string, chunkIndex: number, nextText: string, nextTitle?: string) => Promise<void>
+  onRegenerate: (jobId: string, chunkIndex: number, nextText: string, nextTitle?: string) => Promise<boolean>
   onNotice: (toast: Toast) => void
 }
 
@@ -714,7 +714,13 @@ function QueueChunkPlayer({ jobId, chunk, format, regenerating, onRegenerate, on
             <button
               type="button"
               onClick={() => {
-                onRegenerate(jobId, chunk.index, draftText, draftTitle).then(() => setEditing(false)).catch(() => {})
+                // Close the editor (discarding the draft) only when the change
+                // was actually applied — a busy refusal or failure keeps it open.
+                onRegenerate(jobId, chunk.index, draftText, draftTitle)
+                  .then((applied) => {
+                    if (applied) setEditing(false)
+                  })
+                  .catch(() => {})
               }}
               disabled={regenerating || !draftText.trim()}
             >
@@ -843,6 +849,7 @@ function App() {
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [regeneratingChunkKey, setRegeneratingChunkKey] = useState<string | null>(null)
   const [m4bExportingJobId, setM4bExportingJobId] = useState<string | null>(null)
+  const [zipExportingJobId, setZipExportingJobId] = useState<string | null>(null)
   const [m4bCapability, setM4bCapability] = useState<M4bCapability | null>(null)
   const persistRequestedRef = useRef(false)
   const previewCacheRef = useRef<Map<string, string>>(new Map())
@@ -853,6 +860,15 @@ function App() {
   const progressTimerRef = useRef<ReturnType<typeof setTimeout>>(null)
   const abortRef = useRef(false)
   const generatingRef = useRef(false)
+
+  // A run scheduled 700 ms after the previous one ends must not have its
+  // progress bar wiped by the previous run's reset timer.
+  function clearProgressResetTimer() {
+    if (progressTimerRef.current) {
+      clearTimeout(progressTimerRef.current)
+      progressTimerRef.current = null
+    }
+  }
 
   const availableVoices = useMemo(() => VOICES.filter((voice) => voice.locale === locale), [locale])
   const selectedVoice = VOICES.find((voice) => voice.id === voiceId) ?? VOICES[0]
@@ -1784,6 +1800,7 @@ function App() {
 
     if (isSpeaking && 'speechSynthesis' in window) window.speechSynthesis.cancel()
     setIsSpeaking(false)
+    clearProgressResetTimer()
     abortRef.current = false
     setGenStats(null)
     generatingRef.current = true
@@ -2016,7 +2033,12 @@ function App() {
       showToast({ tone: 'warn', message: queueDisabledReason ?? 'This engine cannot be queued for file export.' })
       return
     }
-    await saveJob(job)
+    try {
+      await saveJob(job)
+    } catch {
+      showToast({ tone: 'error', message: 'Could not save the job to the queue — storage may be full or blocked.' })
+      return
+    }
     setQueueJobs((prev) => [job, ...prev])
     showToast({ tone: 'ok', message: `Queued "${job.title}" — ${job.chunks.length} chunks.` })
   }
@@ -2026,14 +2048,18 @@ function App() {
     text: string,
     synthesize: LoadedQueueEngine['synthesize'],
     sampleRate: number,
-  ): Promise<{ blob: Blob; duration: string; cues?: Cue[] }> {
+  ): Promise<{ blob: Blob; duration: string; cues?: Cue[] } | null> {
     const sentences = splitIntoSentences(applyPronunciations(text))
     const parts: Float32Array[] = []
     const cues: Cue[] = []
     let sampleOffset = 0
     let cueIndex = 1
+    let aborted = false
     for (const sentence of sentences) {
-      if (abortRef.current) break
+      if (abortRef.current) {
+        aborted = true
+        break
+      }
       const audio = await synthesize(sentence, job.voice, job.speed)
       if (audio) {
         const startSec = sampleOffset / sampleRate
@@ -2051,6 +2077,9 @@ function App() {
         }
       }
     }
+    // A pause/cancel mid-chunk must never be checkpointed: a partial blob saved
+    // as 'done' would silently truncate the chapter in every later export.
+    if (aborted) return null
     if (parts.length === 0) throw new Error('No audio produced')
     const raw = concatFloat32Arrays(parts)
     return {
@@ -2069,6 +2098,7 @@ function App() {
     generatingRef.current = true
     setIsGenerating(true)
     setActiveJobId(jobId)
+    clearProgressResetTimer()
     abortRef.current = false
 
     try {
@@ -2086,10 +2116,14 @@ function App() {
 
         try {
           const replacement = await synthesizeQueueChunkBlob(job, chunk.text, synthesize, sampleRate)
-          await saveChunkBlob(jobId, chunk.index, replacement.blob)
-          chunk.duration = replacement.duration
-          chunk.cues = replacement.cues
-          chunk.status = 'done'
+          if (!replacement) {
+            chunk.status = 'pending'
+          } else {
+            await saveChunkBlob(jobId, chunk.index, replacement.blob)
+            chunk.duration = replacement.duration
+            chunk.cues = replacement.cues
+            chunk.status = 'done'
+          }
         } catch (err) {
           chunk.status = 'failed'
           chunk.error = err instanceof Error ? err.message : 'Failed'
@@ -2117,18 +2151,24 @@ function App() {
     }
   }
 
-  async function regenerateQueueChunk(jobId: string, chunkIndex: number, nextText: string, nextTitle?: string) {
-    if (generatingRef.current || regeneratingChunkKey) return
+  async function regenerateQueueChunk(jobId: string, chunkIndex: number, nextText: string, nextTitle?: string): Promise<boolean> {
+    if (generatingRef.current || regeneratingChunkKey) {
+      showToast({ tone: 'warn', message: 'Another generation is running — your edit is kept, try again when it finishes.' })
+      return false
+    }
     const cleanText = nextText.trim()
     if (!cleanText) {
       showToast({ tone: 'warn', message: 'Segment text cannot be empty.' })
-      return
+      return false
     }
 
     const chunkKey = `${jobId}:${chunkIndex}`
     const currentJob = queueJobs.find((job) => job.id === jobId)
     const currentChunk = currentJob?.chunks.find((chunk) => chunk.index === chunkIndex)
-    if (!currentJob || !currentChunk) return
+    if (!currentJob || !currentChunk) {
+      showToast({ tone: 'error', message: 'This queue segment no longer exists.' })
+      return false
+    }
     const chapterTitle = nextTitle?.trim() || undefined
 
     if (cleanText === currentChunk.text) {
@@ -2143,13 +2183,14 @@ function App() {
       await saveJob(nextJob)
       setQueueJobs((prev) => prev.map((job) => (job.id === jobId ? nextJob : job)))
       showToast({ tone: 'ok', message: 'Chapter metadata updated.' })
-      return
+      return true
     }
 
     generatingRef.current = true
     setIsGenerating(true)
     setRegeneratingChunkKey(chunkKey)
     setActiveJobId(jobId)
+    clearProgressResetTimer()
     abortRef.current = false
     setStatus(`Regenerating chunk ${chunkIndex + 1}`)
     setProgress(5)
@@ -2164,6 +2205,10 @@ function App() {
       }
       const { synthesize, sampleRate } = await ensureQueueEngine(job, onProgress)
       const replacement = await synthesizeQueueChunkBlob(job, cleanText, synthesize, sampleRate)
+      if (!replacement) {
+        showToast({ tone: 'warn', message: `Regeneration cancelled — chunk ${chunkIndex + 1} kept its previous audio.` })
+        return false
+      }
       await saveChunkBlob(jobId, chunkIndex, replacement.blob)
       const nextJob = replaceQueueChunk(job, chunkIndex, {
         text: cleanText,
@@ -2177,8 +2222,10 @@ function App() {
       setQueueJobs((prev) => prev.map((item) => (item.id === jobId ? nextJob : item)))
       setProgress(100)
       showToast({ tone: 'ok', message: `Chunk ${chunkIndex + 1} regenerated. ZIP/M4B exports will use the replacement audio.` })
+      return true
     } catch (err) {
       showToast({ tone: 'error', message: err instanceof Error ? `${err.message} Old audio kept.` : 'Regeneration failed. Old audio kept.' })
+      return false
     } finally {
       generatingRef.current = false
       setIsGenerating(false)
@@ -2190,12 +2237,16 @@ function App() {
   }
 
   async function downloadJobZip(jobId: string) {
+    // Exports share the status/progress channel with generation — never let
+    // the two interleave, and never build two ZIPs from a double-click.
+    if (generatingRef.current || zipExportingJobId || m4bExportingJobId) return
     const job = queueJobs.find((j) => j.id === jobId)
     if (!job) return
     const doneChunks = job.chunks.filter((c) => c.status === 'done')
     if (doneChunks.length === 0) return
 
-    setStatus('Building ZIP export...')
+    setZipExportingJobId(jobId)
+    setStatus('Building ZIP export…')
     try {
       const { zip } = await import('fflate')
       const entries: Record<string, Uint8Array> = {}
@@ -2258,11 +2309,13 @@ function App() {
     } catch (err) {
       showToast({ tone: 'error', message: err instanceof Error ? err.message : 'ZIP export failed.' })
     } finally {
+      setZipExportingJobId(null)
       setStatus('Ready')
     }
   }
 
   async function downloadJobM4b(jobId: string) {
+    if (generatingRef.current || zipExportingJobId) return
     const job = queueJobs.find((j) => j.id === jobId)
     if (!job || m4bExportingJobId) return
     if (job.chunks.some((chunk) => chunk.status !== 'done')) {
@@ -2280,7 +2333,8 @@ function App() {
     }
 
     setM4bExportingJobId(jobId)
-    setStatus('Building M4B audiobook...')
+    clearProgressResetTimer()
+    setStatus('Building M4B audiobook…')
     setProgress(1)
     try {
       const chunks = []
@@ -2747,9 +2801,10 @@ function App() {
                             <button
                               type="button"
                               onClick={() => downloadJobZip(job.id)}
+                              disabled={isGenerating || zipExportingJobId !== null || m4bExportingJobId !== null}
                               title={done === total && !m4bExportReady ? 'Download chaptered ZIP fallback with chapters.json.' : 'Download completed chunks as a chaptered ZIP.'}
                             >
-                              <Download size={16} aria-hidden="true" />
+                              {zipExportingJobId === job.id ? <Loader2 size={16} aria-hidden="true" /> : <Download size={16} aria-hidden="true" />}
                               {done === total && !m4bExportReady ? 'ZIP fallback' : 'ZIP'}
                             </button>
                           ) : null}
@@ -2757,7 +2812,7 @@ function App() {
                             <button
                               type="button"
                               onClick={() => downloadJobM4b(job.id)}
-                              disabled={m4bExportingJobId !== null || !m4bExportReady}
+                              disabled={isGenerating || m4bExportingJobId !== null || zipExportingJobId !== null || !m4bExportReady}
                               title={m4bExportReady ? 'Export chaptered M4B' : m4bCapabilityText(m4bCapability)}
                             >
                               {m4bExportingJobId === job.id ? <Loader2 size={16} aria-hidden="true" /> : <Download size={16} aria-hidden="true" />}

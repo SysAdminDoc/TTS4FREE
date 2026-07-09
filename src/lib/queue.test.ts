@@ -115,7 +115,9 @@ describe('queue', () => {
     expect(migrated.engine).toBe('kokoro')
     expect(migrated.voice).toBe('af_bella')
     expect(migrated.language).toBe('en-US')
-    expect(migrated.chunks[0].status).toBe('generating')
+    // A persisted 'generating' chunk is a zombie from a crashed session and
+    // must come back resumable, not stuck on a perpetual "running" pill.
+    expect(migrated.chunks[0].status).toBe('pending')
   })
 
   it('migrates queue chunk playback metadata', () => {

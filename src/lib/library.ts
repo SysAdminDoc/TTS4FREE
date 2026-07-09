@@ -28,12 +28,21 @@ function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(CLIPS_STORE)) db.createObjectStore(CLIPS_STORE, { keyPath: 'id' })
       if (!db.objectStoreNames.contains(BLOBS_STORE)) db.createObjectStore(BLOBS_STORE)
     }
+    let settled = false
     req.onblocked = () => {
+      settled = true
       dbPromise = null
       reject(new Error('Clip library is blocked by another open tab.'))
     }
     req.onsuccess = () => {
       const db = req.result
+      // A blocked open can still succeed later, after the promise already
+      // rejected — close the orphan instead of leaking the connection.
+      if (settled) {
+        db.close()
+        return
+      }
+      settled = true
       // If another tab upgrades the schema, release this connection so the
       // upgrade is never blocked by a zombie handle.
       db.onversionchange = () => {
@@ -43,6 +52,7 @@ function openDB(): Promise<IDBDatabase> {
       resolve(db)
     }
     req.onerror = () => {
+      settled = true
       dbPromise = null
       reject(req.error)
     }
@@ -54,6 +64,9 @@ function txDone(tx: IDBTransaction): Promise<void> {
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
+    // Commit-time failures (e.g. quota checked lazily) fire only abort, with
+    // no request-level error — without this the returned promise never settles.
+    tx.onabort = () => reject(tx.error ?? new DOMException('Transaction aborted', 'AbortError'))
   })
 }
 

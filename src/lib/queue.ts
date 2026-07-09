@@ -44,17 +44,26 @@ function openDB(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise
   dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION)
+    let settled = false
     req.onupgradeneeded = () => {
       const db = req.result
       if (!db.objectStoreNames.contains(JOBS_STORE)) db.createObjectStore(JOBS_STORE, { keyPath: 'id' })
       if (!db.objectStoreNames.contains(CHUNKS_STORE)) db.createObjectStore(CHUNKS_STORE)
     }
     req.onblocked = () => {
+      settled = true
       dbPromise = null
       reject(new Error('Queue DB blocked'))
     }
     req.onsuccess = () => {
       const db = req.result
+      // A blocked open can still succeed later, after the promise already
+      // rejected — close the orphan instead of leaking the connection.
+      if (settled) {
+        db.close()
+        return
+      }
+      settled = true
       db.onversionchange = () => {
         db.close()
         dbPromise = null
@@ -62,6 +71,7 @@ function openDB(): Promise<IDBDatabase> {
       resolve(db)
     }
     req.onerror = () => {
+      settled = true
       dbPromise = null
       reject(req.error)
     }
@@ -73,6 +83,9 @@ function txDone(tx: IDBTransaction): Promise<void> {
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
+    // Commit-time failures (e.g. quota checked lazily) fire only abort, with
+    // no request-level error — without this the returned promise never settles.
+    tx.onabort = () => reject(tx.error ?? new DOMException('Transaction aborted', 'AbortError'))
   })
 }
 
@@ -111,15 +124,9 @@ export async function deleteJob(id: string): Promise<void> {
   const db = await openDB()
   const tx = db.transaction([JOBS_STORE, CHUNKS_STORE], 'readwrite')
   tx.objectStore(JOBS_STORE).delete(id)
-  // Chunk blobs are keyed as "{jobId}:{chunkIndex}"
-  const cursorReq = tx.objectStore(CHUNKS_STORE).openCursor()
-  cursorReq.onsuccess = () => {
-    const cursor = cursorReq.result
-    if (cursor) {
-      if (typeof cursor.key === 'string' && cursor.key.startsWith(`${id}:`)) cursor.delete()
-      cursor.continue()
-    }
-  }
+  // Chunk blobs are keyed as "{jobId}:{chunkIndex}" — a bounded range delete
+  // avoids materializing every stored audio blob just to prefix-match keys.
+  tx.objectStore(CHUNKS_STORE).delete(IDBKeyRange.bound(`${id}:`, `${id}:￿`))
   await txDone(tx)
 }
 
@@ -196,7 +203,9 @@ export function migrateQueueJob(raw: unknown): QueueJob {
 
 function migrateQueueChunk(raw: unknown, index: number): QueueChunk {
   const chunk = raw as Partial<QueueChunk>
-  const status = chunk.status === 'generating' || chunk.status === 'done' || chunk.status === 'failed' ? chunk.status : 'pending'
+  // 'generating' is an in-memory state only: a persisted 'generating' chunk is
+  // a zombie from a crashed session, so demote it to 'pending' for clean resume.
+  const status = chunk.status === 'done' || chunk.status === 'failed' ? chunk.status : 'pending'
   return {
     index: typeof chunk.index === 'number' ? chunk.index : index,
     text: String(chunk.text ?? ''),
