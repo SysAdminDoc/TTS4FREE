@@ -11,6 +11,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { KOKORO_Q8_PACK, ensurePack, readPackStatus, type PackStatus } from './native-models.ts'
 
 type KokoroModule = typeof import('kokoro-js')
 type KokoroInstance = Awaited<ReturnType<KokoroModule['KokoroTTS']['from_pretrained']>>
@@ -27,6 +28,7 @@ export type NativeRuntimeInfo = {
   kokoroJsVersion: string
   node: string
   modelCacheDir: string
+  modelPack?: PackStatus
 }
 
 export type HostRequest =
@@ -106,7 +108,7 @@ function modelCacheDir(): string {
   return dir
 }
 
-function runtimeInfo(): NativeRuntimeInfo {
+function runtimeInfo(modelPack?: PackStatus): NativeRuntimeInfo {
   return {
     runtime: 'onnxruntime-node',
     ep: 'cpu',
@@ -115,15 +117,23 @@ function runtimeInfo(): NativeRuntimeInfo {
     kokoroJsVersion: packageVersion('kokoro-js'),
     node: process.versions.node,
     modelCacheDir: modelCacheDir(),
+    ...(modelPack ? { modelPack } : {}),
   }
 }
 
-async function configureTransformersEnv(): Promise<void> {
+async function configureTransformersEnv(localModelRoot: string | null): Promise<void> {
   const { env } = await import('@huggingface/transformers')
   env.cacheDir = modelCacheDir()
-  // Prefer a previously synced local copy of the q8 assets when present
-  // (dist/models after `npm run sync:kokoro`); otherwise fetch from Hugging
-  // Face into the cache dir above.
+  if (localModelRoot) {
+    // Every core model file was hash-verified against the pinned manifest —
+    // point transformers at the verified copy so nothing else is fetched for
+    // the graph/tokenizer/config.
+    env.localModelPath = localModelRoot
+    env.allowLocalModels = true
+    return
+  }
+  // Manifest download unavailable (offline with a dev sync present): fall back
+  // to a previously synced dist/models copy, else transformers' own HF fetch.
   const localModels = resolve('dist', 'models')
   if (existsSync(join(localModels, KOKORO_MODEL_ID))) {
     env.localModelPath = localModels
@@ -133,6 +143,7 @@ async function configureTransformersEnv(): Promise<void> {
 
 let tts: KokoroInstance | null = null
 let loadedKey = ''
+let lastPackStatus: PackStatus | undefined
 
 const port = getPort()
 
@@ -140,7 +151,15 @@ port.onMessage(async (msg) => {
   if (!msg || typeof msg !== 'object') return
 
   if (msg.type === 'info') {
-    port.post({ type: 'info', runtime: runtimeInfo() })
+    let modelPack = lastPackStatus
+    if (!modelPack) {
+      try {
+        modelPack = await readPackStatus(modelCacheDir(), KOKORO_Q8_PACK)
+      } catch {
+        // status stays undefined when the cache dir is unreadable
+      }
+    }
+    port.post({ type: 'info', runtime: runtimeInfo(modelPack) })
     return
   }
 
@@ -148,11 +167,28 @@ port.onMessage(async (msg) => {
     const dtype = msg.dtype ?? 'q8'
     const key = `cpu:${dtype}`
     if (tts && loadedKey === key) {
-      port.post({ type: 'loaded', key, runtime: runtimeInfo() })
+      port.post({ type: 'loaded', key, runtime: runtimeInfo(lastPackStatus) })
       return
     }
     try {
-      await configureTransformersEnv()
+      // Manifest-verified download first (resumable, SHA-256 checked, license
+      // gated). A download failure falls back to transformers' own fetch so an
+      // HF hiccup doesn't brick native mode — the pack status records it.
+      let localModelRoot: string | null = null
+      try {
+        const ensured = await ensurePack(modelCacheDir(), KOKORO_Q8_PACK, {
+          onProgress: (info) => port.post({ type: 'progress', info }),
+        })
+        localModelRoot = ensured.localModelRoot
+        lastPackStatus = ensured.status
+      } catch (packErr) {
+        lastPackStatus = await readPackStatus(modelCacheDir(), KOKORO_Q8_PACK).catch(() => undefined)
+        port.post({
+          type: 'progress',
+          info: { status: 'pack-fallback', message: packErr instanceof Error ? packErr.message : String(packErr) },
+        })
+      }
+      await configureTransformersEnv(localModelRoot)
       const { KokoroTTS } = await import('kokoro-js')
       tts = await KokoroTTS.from_pretrained(KOKORO_MODEL_ID, {
         device: 'cpu' as never,
@@ -162,7 +198,7 @@ port.onMessage(async (msg) => {
         },
       })
       loadedKey = key
-      port.post({ type: 'loaded', key, runtime: runtimeInfo() })
+      port.post({ type: 'loaded', key, runtime: runtimeInfo(lastPackStatus) })
     } catch (err) {
       tts = null
       loadedKey = ''

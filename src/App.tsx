@@ -47,7 +47,7 @@ import { KOKORO_HF_RESOLVE_PREFIX, KOKORO_LOCAL_MODEL_PREFIX, KOKORO_MODEL_ID } 
 import { loadTimestampedKokoro, resetTimestampedKokoroSession, synthesizeTimestampedKokoro } from './lib/kokoro-timestamps.ts'
 import { needsDirectKokoroPath } from './lib/kokoro-direct.ts'
 import { generateWorker, loadKokoroWorker, resetWorker } from './lib/kokoro-worker.ts'
-import { generateNative, loadNativeKokoro, nativeTtsAvailable, resetNativeTts } from './platform/native-tts.ts'
+import { generateNative, getNativeRuntimeInfo, loadNativeKokoro, nativeTtsAvailable, resetNativeTts } from './platform/native-tts.ts'
 import { type VoiceMixEntry, blendVoiceBins, fetchVoiceBin, formatMixFormula } from './lib/voice-mix.ts'
 import { type ClipRecord, clearLibrary, deleteClip, enforceLibraryCap, getClipBlob, listClips, saveClip } from './lib/library.ts'
 import { buildM4bFromBlobs, checkM4bCapability, type M4bCapability } from './lib/m4b.ts'
@@ -1136,6 +1136,15 @@ function App() {
     if (engine === 'kitten') modelRoutes.kittenModel = selectedKittenModel.id
     if (engine === 'piper') modelRoutes.piperPlusLanguage = piperLanguage
 
+    const nativeRuntime = nativeAvailable ? getNativeRuntimeInfo() : null
+    if (nativeRuntime) {
+      modelRoutes.nativeRuntime = `onnxruntime-node ${nativeRuntime.ortVersion} (${nativeRuntime.ep})`
+      if (nativeRuntime.modelPack) {
+        const pack = nativeRuntime.modelPack
+        modelRoutes.nativeModelPack = `${pack.modelId}@${pack.revision.slice(0, 12)} · ${pack.license.spdx} · ${pack.verified ? 'verified' : pack.installed ? 'present (unverified)' : 'not installed'}`
+      }
+    }
+
     return {
       engine,
       engineStatus,
@@ -1368,7 +1377,8 @@ function App() {
 
     if (forceNative && nativeAvailable) {
       const runtime = await loadNativeKokoro(onProgress)
-      setRuntimeLabel(`Native ORT ${runtime.ep.toUpperCase()} q8 · onnxruntime-node ${runtime.ortVersion}`)
+      const packSuffix = runtime.modelPack?.verified ? ' · verified pack' : ''
+      setRuntimeLabel(`Native ORT ${runtime.ep.toUpperCase()} q8 · onnxruntime-node ${runtime.ortVersion}${packSuffix}`)
       return {
         synthesize: async (text, voice, spd, bin) => {
           if (needsDirectKokoroPath(voice, bin)) {

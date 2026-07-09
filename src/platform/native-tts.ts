@@ -5,6 +5,20 @@
 import type { ProgressInfo } from '../lib/kokoro.ts'
 import { getNativeTtsBridge } from './index.ts'
 
+export type NativeModelPackStatus = {
+  id: string
+  modelId: string
+  revision: string
+  version: string
+  license: { spdx: string; tier: string }
+  installed: boolean
+  verified: boolean
+  totalBytes: number
+  expectedBytes: number
+  blockedReason: string | null
+  notCovered?: string
+}
+
 export type NativeRuntimeInfo = {
   runtime: 'onnxruntime-node'
   ep: 'cpu'
@@ -13,6 +27,7 @@ export type NativeRuntimeInfo = {
   kokoroJsVersion: string
   node: string
   modelCacheDir: string
+  modelPack?: NativeModelPackStatus
 }
 
 type HostMessage =
