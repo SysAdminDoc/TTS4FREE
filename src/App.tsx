@@ -1037,7 +1037,8 @@ function App() {
     document.documentElement.dataset.theme = theme
     // Keep the browser/PWA chrome color in sync — a light UI under a
     // near-black Android status bar reads as a theming bug.
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#05080d' : '#eef3f8')
+    const chromeColor = window.getComputedStyle(document.documentElement).getPropertyValue('--bg-strong').trim()
+    if (chromeColor) document.querySelector('meta[name="theme-color"]')?.setAttribute('content', chromeColor)
     try { window.localStorage.setItem('bettertts-theme', theme) } catch { /* storage blocked */ }
   }, [theme])
 

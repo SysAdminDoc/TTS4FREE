@@ -1,6 +1,6 @@
 export const KITTEN_SAMPLE_RATE = 24000
 export const KITTEN_DEFAULT_MODEL = 'nano'
-export const KITTEN_PREVIEW_TEXT = 'This is KittenTTS running locally in your browser.'
+export const KITTEN_PREVIEW_TEXT = 'This is KittenTTS running locally on your device.'
 
 export type KittenVoiceId = 'Bella' | 'Luna' | 'Rosie' | 'Kiki' | 'Jasper' | 'Bruno' | 'Hugo' | 'Leo'
 export type KittenModelSize = 'nano' | 'micro' | 'mini'

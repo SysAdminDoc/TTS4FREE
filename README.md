@@ -2,22 +2,22 @@
 
 [![Version](https://img.shields.io/badge/version-0.18.0-blue.svg)](#)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-GitHub%20Pages-24292f.svg)](https://sysadmindoc.github.io/BetterTTS/)
+[![Platform](https://img.shields.io/badge/platform-Web%20%7C%20Windows-24292f.svg)](https://sysadmindoc.github.io/BetterTTS/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178c6.svg)](#)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](#)
-[![Tests](https://img.shields.io/badge/tests-234%20passing-53d889.svg)](#)
+[![Tests](https://img.shields.io/badge/tests-238%20passing-53d889.svg)](#)
 
-**Free client-side text-to-speech studio.** Kokoro 82M, Supertonic, KittenTTS, and an experimental Piper-plus path run entirely in your browser — no server, no signup, no usage caps (5,000 characters per run, unlimited runs). Export WAV, MP3, Opus, or chaptered M4B — keep everything private.
+**Private local text-to-speech studio for web and Windows.** Kokoro 82M, Supertonic, KittenTTS, and an experimental Piper-plus path run on your device — no account, cloud synthesis, or usage caps (5,000 characters per run, unlimited runs). Export WAV, MP3, Opus, or chaptered M4B while keeping scripts and audio local.
 
 [**Try it live**](https://sysadmindoc.github.io/BetterTTS/) | [Changelog](CHANGELOG.md)
 
-> **Desktop app (preview).** A Windows desktop build is in progress on Electron — it reuses this exact studio inside a version-locked Chromium shell (guaranteeing WebCodecs, WebGPU, and SharedArrayBuffer regardless of the system browser) and already synthesizes Kokoro through **native ONNX Runtime** (onnxruntime-node CPU EP in an isolated utility process, with SHA-256-verified model packs pinned to an immutable revision). Enable it via the "Native engine" toggle in the desktop settings. FFmpeg export and more native engines land in later phases. `npm run desktop:dev` to run it, `npm run desktop:dist` to build a Windows installer. The web app above is unaffected.
+> **Windows desktop app.** The Electron build reuses the same studio inside a version-locked Chromium shell and can synthesize Kokoro through **native ONNX Runtime** in an isolated utility process. Native model packs are pinned to immutable revisions and SHA-256 verified before use. Enable **Native engine (desktop)** under Properties -> System & diagnostics. Run `npm run desktop:dev` for development or `npm run desktop:dist` to build the installer.
 
 ---
 
 ## Why BetterTTS?
 
-Every cloud TTS service gates you behind signups, character limits, and paid tiers. BetterTTS runs the full Kokoro 82M neural model locally in your browser via WebGPU or WASM — your text never leaves your device. No API keys, no queue, no watermarks, no 10,000-character monthly cap.
+Every cloud TTS service gates you behind signups, character limits, and paid tiers. BetterTTS runs the full Kokoro 82M neural model locally through WebGPU, WebAssembly, or native ONNX Runtime — your text never leaves your device. No API keys, cloud render queue, watermarks, or 10,000-character monthly cap.
 
 | | BetterTTS | ElevenLabs Free | TTSMaker Free | voice-generator.com |
 |---|---|---|---|---|
@@ -120,11 +120,11 @@ Open `http://localhost:5173/BetterTTS/` in your browser.
 
 ## Troubleshooting
 
-Use **Control console -> Diagnostics -> Copy JSON** when reporting a local browser/runtime issue. The bundle includes app version, browser details, WebGPU adapter status, WebCodecs AAC/Opus support, Cross-Origin Storage detection, Transformers.js upgrade readiness, Piper-plus runtime support, storage quota, model-cache summary, selected model routes, and recent sanitized warnings/errors. It does not include script text or imported article URLs.
+Use **Properties -> System & diagnostics -> Diagnostics -> Copy JSON** when reporting a local runtime issue. The bundle includes app version, platform details, WebGPU adapter status, WebCodecs AAC/Opus support, Cross-Origin Storage detection, Transformers.js upgrade readiness, Piper-plus runtime support, storage quota, model-cache summary, selected model routes, and recent sanitized warnings/errors. It does not include script text or imported article URLs.
 
 BetterTTS currently pins `@huggingface/transformers` to 4.2.0 through the root npm override. Do not switch to 4.3+ until the candidate install dedupes with `npm ls @huggingface/transformers`, the Kokoro/Supertonic/Kitten compatibility tests pass under that candidate (`npx vitest run src/lib/transformers-v4.test.ts src/lib/kokoro-assets.test.ts src/lib/supertonic.test.ts src/lib/kitten.test.ts`), and the full `npm test`, `npm run lint`, `npm run build`, and `npm run smoke` checks pass. Cross-Origin Storage is feature-detected only; the default model path stays on the per-origin Cache API until native browser support is available without an extension or polyfill.
 
-Run `npm run smoke` for a local production-build browser check. It serves `dist/` at `/BetterTTS/`, verifies desktop/mobile rendering, theme switching, diagnostics copy, queue controls, read-along playback controls, M4B fallback messaging, and unexpected console noise; screenshots and `summary.json` are written to `dist/smoke/`.
+Run `npm run smoke` for a local production-build browser check. It serves `dist/` at `/BetterTTS/`, verifies both themes, mobile navigation, keyboard tabs, diagnostics and update actions, queue/library playback and Undo recovery, empty states, M4B fallback messaging, and unexpected console noise. Eight screen captures plus `summary.json` are written to `dist/smoke/`.
 
 ## Tech Stack
 
@@ -140,7 +140,7 @@ Run `npm run smoke` for a local production-build browser check. It serves `dist/
 | Document Import | `pdfjs-dist` for PDF text; `fflate` + XML parsing for EPUB/DOCX |
 | ZIP Packaging | `fflate` |
 | Icons | `lucide-react` |
-| Testing | Vitest (234 tests across 30 suites) + Playwright smoke |
+| Testing | Vitest (238 tests across 29 files) + Playwright smoke |
 | Linting | oxlint |
 | Hosting | GitHub Pages (static, no backend) |
 
@@ -240,7 +240,7 @@ Supertonic is available as a separate English speed engine: 66M parameters, 10 v
 
 KittenTTS is available as a separate English lightweight engine: Nano 15M / 24 MB by default, Micro 40M / 41 MB, Mini 80M / 78 MB, 8 voices, 24,000 Hz output, WebGPU-only shader inference, MIT package code, and Apache-2.0 model weights. The package is lazy-loaded and model weights stay HF-hosted until the engine is selected.
 
-Piper-plus is available behind **Enable experimental Piper-plus** in the Control console: `piper-plus` 0.6.0, Tsukuyomi-chan (`ayousanz/piper-plus-tsukuyomi-chan`), 22,050 Hz output, JA/EN/ZH/KO/ES/FR/PT/SV language targets, MIT package/runtime path, and ONNX Runtime Web. The engine is direct-generation only in this prototype; it is not added to the persistent queue yet. Piper package code, the multilingual WASM G2P, ONNX Runtime, and the model are lazy-loaded only after the flag is enabled and Piper-plus is selected. Deployed builds prefer the same-origin `dist/models/ayousanz/piper-plus-tsukuyomi-chan/` copy; local builds fall back to Hugging Face when that asset has not been synced.
+Piper-plus is available behind **Enable experimental Piper-plus** under Properties -> System & diagnostics: `piper-plus` 0.6.0, Tsukuyomi-chan (`ayousanz/piper-plus-tsukuyomi-chan`), 22,050 Hz output, JA/EN/ZH/KO/ES/FR/PT/SV language targets, MIT package/runtime path, and ONNX Runtime Web. The engine is direct-generation only in this prototype; it is not added to the persistent queue yet. Piper package code, the multilingual WASM G2P, ONNX Runtime, and the model are lazy-loaded only after the flag is enabled and Piper-plus is selected. Deployed builds prefer the same-origin `dist/models/ayousanz/piper-plus-tsukuyomi-chan/` copy; local builds fall back to Hugging Face when that asset has not been synced.
 
 Word timestamps are available as an opt-in Kokoro mode using `onnx-community/Kokoro-82M-v1.0-ONNX-timestamped`; the extra q8 model stays HF-hosted and powers word-level SRT/VTT plus follow-along highlighting.
 
