@@ -14,6 +14,31 @@ directories:
 files:
   - dist/**/*
   - dist-electron/**/*
+  - "!dist-electron/model-cache/**/*"
+  - "!dist-electron/smoke.png"
+  # Browser dependencies are already bundled into dist/ by Vite. The native
+  # host only resolves kokoro-js, Transformers.js, phonemizer, and ORT Node.
+  - "!node_modules/@breezystack/**/*"
+  - "!node_modules/@mozilla/**/*"
+  - "!node_modules/@piper-plus/**/*"
+  - "!node_modules/ephone/**/*"
+  - "!node_modules/fflate/**/*"
+  - "!node_modules/kitten-tts-webgpu/**/*"
+  - "!node_modules/lucide-react/**/*"
+  - "!node_modules/onnxruntime-web/**/*"
+  - "!node_modules/pdfjs-dist/**/*"
+  - "!node_modules/piper-plus/**/*"
+  - "!node_modules/react/**/*"
+  - "!node_modules/react-dom/**/*"
+  - "!node_modules/signalsmith-stretch/**/*"
+  - "!node_modules/@huggingface/transformers/node_modules/onnxruntime-web/**/*"
+  # The installer target is Windows x64; retain only that native ORT payload.
+  - "!node_modules/onnxruntime-node/bin/napi-v6/darwin/**/*"
+  - "!node_modules/onnxruntime-node/bin/napi-v6/linux/**/*"
+  - "!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**/*"
+  - "!node_modules/@huggingface/transformers/node_modules/onnxruntime-node/bin/napi-v6/darwin/**/*"
+  - "!node_modules/@huggingface/transformers/node_modules/onnxruntime-node/bin/napi-v6/linux/**/*"
+  - "!node_modules/@huggingface/transformers/node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**/*"
   - package.json
 
 # Native addons must live outside the asar so the OS loader can dlopen them.

@@ -9,6 +9,7 @@ import { extname, join, normalize, sep } from 'node:path'
 const DEV_URL = process.env.BETTERTTS_DEV_URL
 const IS_DEV = Boolean(DEV_URL)
 const IS_SMOKE = process.argv.includes('--smoke')
+const LOAD_NATIVE_IN_SMOKE = process.env.BETTERTTS_SMOKE_NATIVE_LOAD === '1'
 
 app.setName('BetterTTS')
 
@@ -117,7 +118,7 @@ function ensureTtsHost(): UtilityProcess {
   if (ttsHost) return ttsHost
   const env: Record<string, string | undefined> = {
     ...process.env,
-    BETTERTTS_MODEL_CACHE: join(app.getPath('userData'), 'native-models'),
+    BETTERTTS_MODEL_CACHE: process.env.BETTERTTS_MODEL_CACHE ?? join(app.getPath('userData'), 'native-models'),
   }
   // Same dev-environment hazard as scripts/run-electron.mjs: a present-but-set
   // ELECTRON_RUN_AS_NODE must be deleted, never blanked.
@@ -169,6 +170,27 @@ function probeTtsHostInfo(timeoutMs = 8000): Promise<unknown> {
   })
 }
 
+function probeTtsHostLoad(timeoutMs = 180000): Promise<unknown> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const host = ensureTtsHost()
+    const timer = setTimeout(() => {
+      host.removeListener('message', onMessage)
+      rejectPromise(new Error('native host model-load timeout'))
+    }, timeoutMs)
+    const onMessage = (message: unknown) => {
+      if (!message || typeof message !== 'object') return
+      const type = (message as { type?: string }).type
+      if (type !== 'loaded' && type !== 'loadError') return
+      clearTimeout(timer)
+      host.removeListener('message', onMessage)
+      if (type === 'loaded') resolvePromise(message)
+      else rejectPromise(new Error((message as { message?: string }).message ?? 'native host model load failed'))
+    }
+    host.on('message', onMessage)
+    host.postMessage({ type: 'load', dtype: 'q8' })
+  })
+}
+
 function applyDevSecurityHeaders(): void {
   // The Vite dev server can't set COOP/COEP itself, so inject them here to keep
   // the isolated-context behavior identical to production.
@@ -187,7 +209,7 @@ function createWindow(): BrowserWindow {
     minHeight: 640,
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: '#05080d',
+    backgroundColor: '#05070a',
     // Paint while hidden so ready-to-show and the smoke capture work reliably.
     paintWhenInitiallyHidden: true,
     webPreferences: {
@@ -252,6 +274,10 @@ async function runSmoke(win: BrowserWindow): Promise<void> {
     try {
       const nativeHost = (await probeTtsHostInfo()) as { runtime?: unknown }
       result.nativeHost = nativeHost.runtime ?? nativeHost
+      if (LOAD_NATIVE_IN_SMOKE) {
+        const nativeLoad = (await probeTtsHostLoad()) as { key?: unknown; runtime?: unknown }
+        result.nativeLoad = { key: nativeLoad.key, runtime: nativeLoad.runtime }
+      }
     } catch (err) {
       result.nativeHostError = err instanceof Error ? err.message : String(err)
     }
@@ -261,7 +287,8 @@ async function runSmoke(win: BrowserWindow): Promise<void> {
       probe.railItems >= 5 &&
       probe.generate &&
       Boolean(probe.platform) &&
-      Boolean(result.nativeHost)
+      Boolean(result.nativeHost) &&
+      (!LOAD_NATIVE_IN_SMOKE || Boolean(result.nativeLoad))
     result.probe = probe
   } catch (err) {
     result.error = err instanceof Error ? err.message : String(err)
